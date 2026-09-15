@@ -28,6 +28,11 @@ public class AppPreferenceViewModel extends ViewModel {
     private final MutableLiveData<String> _accountError = new MutableLiveData<>("");
     private final LiveData<String> accountError = _accountError;
 
+    private final MutableLiveData<String> _exposureDataset = new MutableLiveData<>("");
+    private final MutableLiveData<String> _exposureCalcType = new MutableLiveData<>("");
+    private final MutableLiveData<String> _exposureDistance = new MutableLiveData<>("");
+
+
     @Inject
     public AppPreferenceViewModel(AppPreferenceRepository appPreferenceRepository) {
         this.appPreferenceRepository = appPreferenceRepository;
@@ -143,4 +148,36 @@ public class AppPreferenceViewModel extends ViewModel {
     public LiveData<String> getAccountError() {
         return accountError;
     }
+    
+    public void loadExposureParams() {
+        appPreferenceRepository.getExposureDataset(new RepositoryCallback<>() {
+            public void onSuccess(String result) { _exposureDataset.postValue(result); }
+            public void onFailure(Throwable error) { _accountError.postValue("Account error."); }
+        });
+        appPreferenceRepository.getExposureCalcType(new RepositoryCallback<>() {
+            public void onSuccess(String result) { _exposureCalcType.postValue(result); }
+            public void onFailure(Throwable error) { _accountError.postValue("Account error."); }
+        });
+        appPreferenceRepository.getExposureDistance(new RepositoryCallback<>() {
+            public void onSuccess(String result) { _exposureDistance.postValue(result); }
+            public void onFailure(Throwable error) { _accountError.postValue("Account error."); }
+        });
+    }
+
+    public void setExposureDataset(String value) {
+        _exposureDataset.setValue(value);
+        appPreferenceRepository.setExposureDataset(value);
+    }
+    public void setExposureCalcType(String value) {
+        _exposureCalcType.setValue(value);
+        appPreferenceRepository.setExposureCalcType(value);
+    }
+    public void setExposureDistance(String value) {
+        _exposureDistance.setValue(value);
+        appPreferenceRepository.setExposureDistance(value);
+    }
+
+    public LiveData<String> getExposureDataset() { return _exposureDataset; }
+    public LiveData<String> getExposureCalcType() { return _exposureCalcType; }
+    public LiveData<String> getExposureDistance() { return _exposureDistance; }
 }

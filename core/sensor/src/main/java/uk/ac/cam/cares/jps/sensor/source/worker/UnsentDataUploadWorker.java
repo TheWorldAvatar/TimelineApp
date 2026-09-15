@@ -12,6 +12,7 @@ import androidx.work.WorkerParameters;
 
 import org.apache.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,13 +29,12 @@ public class UnsentDataUploadWorker extends Worker {
     private final SensorNetworkSource sensorNetworkSource;
     private final Logger LOGGER = Logger.getLogger(UnsentDataUploadWorker.class);
 
-    // TODO: taskId should be in the stored data
     private final String taskId;
 
     @AssistedInject
     public UnsentDataUploadWorker(@Assisted @NonNull Context context, @Assisted @NonNull WorkerParameters workerParams,
-                                  SensorLocalSource sensorLocalSource,
-                                  SensorNetworkSource sensorNetworkSource) {
+                                SensorLocalSource sensorLocalSource,
+                                SensorNetworkSource sensorNetworkSource) {
         super(context, workerParams);
         this.sensorLocalSource = sensorLocalSource;
         this.sensorNetworkSource = sensorNetworkSource;
@@ -46,50 +46,76 @@ public class UnsentDataUploadWorker extends Worker {
     public Result doWork() {
         try {
             uploadUnsentData();
-
             return Result.success();
         } catch (Exception e) {
             Log.e("DataUploadWorker", "Error uploading sensor data", e);
-            return Result.failure(); // data should be sent to local alr
+            return Result.failure();
         }
     }
 
     private void uploadUnsentData() {
         int limit = 100;
-        int offset = 0;
-        List<UnsentData> unsentDataList;
 
-        do {
-            LOGGER.info("offset: " + offset);
-            unsentDataList = sensorLocalSource.retrieveUnsentData(limit, offset);
-            offset += unsentDataList.size();
+        while (true) {
+            // Always read from offset 0: rows we've confirmed sent are deleted
+            // before the next read, so whatever is left has already "slid down".
+            // Advancing the offset here (like the old code did) while also
+            // deleting the same rows caused every other page to be skipped.
+            List<UnsentData> unsentDataList = sensorLocalSource.retrieveUnsentData(limit, 0);
+            if (unsentDataList.isEmpty()) {
+                break;
+            }
 
-            Map<String, String> deviceIdToPayloads = combinePayload(unsentDataList);
-            for (Map.Entry<String, String> entry : deviceIdToPayloads.entrySet()) {
+            Map<String, List<UnsentData>> byDevice = groupByDevice(unsentDataList);
+            boolean anySucceeded = false;
+
+            for (Map.Entry<String, List<UnsentData>> entry : byDevice.entrySet()) {
                 String deviceId = entry.getKey();
-                String payload = entry.getValue();
+                List<UnsentData> deviceRows = entry.getValue();
+                String payload = combinePayload(deviceRows);
 
                 try {
                     byte[] compressedData = compressData(payload);
-                    sensorNetworkSource.sendPostRequest(deviceId, taskId, compressedData, payload);
-                    sensorLocalSource.deleteUnsentData(unsentDataList);
-                    LOGGER.info("unsent data operations completed");
+                    // We now know, on this line, whether the server actually got it.
+                    boolean success = sensorNetworkSource.sendPostRequestSync(deviceId, taskId, compressedData, payload);
+
+                    if (success) {
+                        // Only delete once delivery is confirmed.
+                        sensorLocalSource.deleteUnsentData(deviceRows);
+                        anySucceeded = true;
+                        LOGGER.info("Unsent data upload confirmed for device " + deviceId);
+                    } else {
+                        LOGGER.warn("Unsent data upload failed for device " + deviceId + ", leaving rows for next retry");
+                    }
                 } catch (Exception e) {
-                    LOGGER.error("Error processing unsent data", e);
+                    LOGGER.error("Error processing unsent data for device " + deviceId, e);
                 }
             }
-        } while (!unsentDataList.isEmpty());
+
+            if (!anySucceeded) {
+                // Still offline / server unreachable - stop instead of spinning
+                // forever on the same rows. Next connectivity change tries again.
+                break;
+            }
+        }
     }
 
-    private Map<String, String> combinePayload(List<UnsentData> unsentDataList) {
-        Map<String, String> deviceIdToPayload = new HashMap<>();
-        for (UnsentData unsentData : unsentDataList) {
-            String combinedPayload = deviceIdToPayload.getOrDefault(unsentData.deviceId, "") + unsentData.data.substring(1, unsentData.data.length() -1);
-            deviceIdToPayload.put(unsentData.deviceId, combinedPayload);
+    private Map<String, List<UnsentData>> groupByDevice(List<UnsentData> unsentDataList) {
+        Map<String, List<UnsentData>> byDevice = new HashMap<>();
+        for (UnsentData data : unsentDataList) {
+            byDevice.computeIfAbsent(data.deviceId, k -> new ArrayList<>()).add(data);
         }
-        for (String deviceId : deviceIdToPayload.keySet()) {
-            deviceIdToPayload.put(deviceId, String.format("[%s]", deviceIdToPayload.get(deviceId)));
+        return byDevice;
+    }
+
+    private String combinePayload(List<UnsentData> deviceRows) {
+        StringBuilder combined = new StringBuilder();
+        for (UnsentData data : deviceRows) {
+            if (combined.length() > 0) {
+                combined.append(",");
+            }
+            combined.append(data.data, 1, data.data.length() - 1); // strip stored [ ]
         }
-        return deviceIdToPayload;
+        return "[" + combined + "]";
     }
 }

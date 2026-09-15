@@ -94,6 +94,11 @@ public class UserDialogFragment extends DialogFragment {
 
         binding.logOut.setOnClickListener(v -> userAccountViewModel.logout());
 
+        binding.exposureSetting.setOnClickListener(v -> {
+            dismiss();
+            navigate(uk.ac.cam.cares.jps.utils.R.string.exposure_setting_link);
+        });
+
     }
 
     private void navigate(int uriResId) {

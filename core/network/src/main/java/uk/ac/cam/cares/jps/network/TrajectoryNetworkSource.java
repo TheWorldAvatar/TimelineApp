@@ -130,6 +130,7 @@ public class TrajectoryNetworkSource {
         }
 
         // Primary request URL
+        /*
         String getTrajectoryActivityUri = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
                 .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.geoserver_jwt_proxy_geoserver_twa_wfs))
                 .addQueryParameter("service", "WFS")
@@ -139,6 +140,7 @@ public class TrajectoryNetworkSource {
                 .addQueryParameter("outputFormat", "application/json")
                 .addQueryParameter("viewparams", String.format(Locale.ENGLISH, "upperbound:%d;lowerbound:%d;", upperbound, lowerbound))
                 .build().toString();
+         */
 
         // Fallback request URL
         String getTrajectoryDefaultUri = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
@@ -151,18 +153,39 @@ public class TrajectoryNetworkSource {
                 .addQueryParameter("viewparams", String.format(Locale.ENGLISH, "upperbound:%d;lowerbound:%d;", upperbound, lowerbound))
                 .build().toString();
 
-        LOGGER.info("Print out URI: " + getTrajectoryActivityUri);
+        LOGGER.info("Print out URI: " + getTrajectoryDefaultUri);
 
         // --- ADD: capture the moment we're about to send the primary WFS request ---
         final long primaryStart = System.currentTimeMillis();
-        LOGGER.info("[TIMING][" + requestId + "] Sending trajectoryUserIdByActivity request at " + primaryStart);
+        LOGGER.info("[TIMING][" + requestId + "] Sending trajectoryUserId request at " + primaryStart);
 
         Response.Listener<String> onGetTrajectorySuccess = s1 -> {
             // --- ADD: log elapsed time for the primary request as soon as it comes back ---
             long primaryElapsed = System.currentTimeMillis() - primaryStart;
-            LOGGER.info("[TIMING][" + requestId + "] trajectoryUserIdByActivity took " + primaryElapsed + "ms");
+            LOGGER.info("[TIMING][" + requestId + "] trajectoryUserId took " + primaryElapsed + "ms");
 
             try {
+                LOGGER.debug("Full server response: " + s1);
+
+                JSONObject trajectoryResponse = new JSONObject(s1);
+
+                int totalFeatures = trajectoryResponse.getInt("totalFeatures");
+
+                LOGGER.info(
+                        "[TIMING][" + requestId + "] trajectoryUserId returned "
+                                + totalFeatures + " features"
+                );
+
+                if (totalFeatures == 0) {
+                    LOGGER.info("No trajectory found for trajectoryUserId");
+                    onSuccessUpper.onResponse("");
+                    return;
+                }
+
+                onSuccessUpper.onResponse(trajectoryResponse.toString());
+
+/*
+                try {
                 LOGGER.debug("Full server response: " + s1);
 
                 JSONObject trajectoryResponse = new JSONObject(s1);
@@ -204,8 +227,10 @@ public class TrajectoryNetworkSource {
                 } else {
                     onSuccessUpper.onResponse(trajectoryResponse.toString());
                 }
+ */
             } catch (JSONException e) {
                 LOGGER.error("Received XML response instead of JSON: " + s1);
+                LOGGER.error("Received invalid JSON from GeoServer", e);
                 onFailureUpper.onErrorResponse(new VolleyError("Geoserver error"));
             }
         };
@@ -217,7 +242,7 @@ public class TrajectoryNetworkSource {
             onFailureUpper.onErrorResponse(error);
         };
 
-        StringRequest request = new StringRequest(Request.Method.GET, getTrajectoryActivityUri, onGetTrajectorySuccess, onGetTrajectoryError) {
+        StringRequest request = new StringRequest(Request.Method.GET, getTrajectoryDefaultUri, onGetTrajectorySuccess, onGetTrajectoryError) {
             @Override
             public Map<String, String> getHeaders() throws AuthFailureError {
                 Map<String, String> headers = new HashMap<>();

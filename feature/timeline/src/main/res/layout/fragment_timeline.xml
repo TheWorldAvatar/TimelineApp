@@ -28,6 +28,53 @@
             app:title="TWA Timeline"
             app:titleCentered="true"
             app:menu="@menu/timeline_menu" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/trip_detail_bubble"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:visibility="gone"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="4dp">
+
+            <androidx.appcompat.widget.LinearLayoutCompat
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/trip_detail_id_tv"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/trip_detail_distance_tv"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="4dp" />
+
+                <ImageButton
+                    android:id="@+id/trip_detail_close_bt"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/close"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel" />
+
+            </androidx.appcompat.widget.LinearLayoutCompat>
+
+        </com.google.android.material.card.MaterialCardView>
+
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.appcompat.widget.LinearLayoutCompat
@@ -58,6 +105,98 @@
         app:elevation="6dp"
         app:layout_anchor="@id/bottom_sheet_container"
         app:layout_anchorGravity="top|start" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/legend_card"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:translationY="-108dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="4dp"
+        app:layout_anchor="@id/bottom_sheet_container"
+        app:layout_anchorGravity="top|start">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="8dp">
+
+            <!-- repeat this row per legend entry -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="4dp">
+
+                <View
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/legend_swatch_shape"
+                    android:backgroundTint="#FF0000" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:text="Visit" />
+            </LinearLayout>
+            <!-- end repeat -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingVertical="4dp">
+
+                <View
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/legend_swatch_shape"
+                    android:backgroundTint="#008000" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="13sp"
+                    android:text="Trip" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/run_trip_agent_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="16dp"
+        android:translationY="-96dp"
+        android:text="@string/run_trip_agent"
+        app:backgroundTint="@color/fab_idle"
+        android:textColor="@android:color/white"
+        app:cornerRadius="4dp"
+        app:elevation="6dp"
+        app:layout_anchor="@id/bottom_sheet_container"
+        app:layout_anchorGravity="top|end" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/hawker_centre_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="16dp"
+        android:translationY="-40dp"
+        android:text="@string/hawker_centre"
+        app:backgroundTint="@color/fab_idle"
+        android:textColor="@android:color/white"
+        app:cornerRadius="4dp"
+        app:elevation="6dp"
+        app:layout_anchor="@id/bottom_sheet_container"
+        app:layout_anchorGravity="top|end" />
+
+    
 
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

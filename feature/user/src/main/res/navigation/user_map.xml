@@ -115,4 +115,15 @@
 
     <action android:id="@+id/action_helpPageFragment_to_helpAboutFragment"
         app:destination="@id/help_about_fragment" />
+
+    <fragment
+        android:id="@+id/exposure_setting"
+        android:name="uk.ac.cam.cares.jps.user.setting.ExposureSettingFragment"
+        tools:layout="@layout/fragment_exposure_setting">
+        <deepLink app:uri="@string/exposure_setting_link" />
+    </fragment>
+
+    <action android:id="@+id/action_global_exposure_setting"
+        app:destination="@id/exposure_setting" />
+
 </navigation>

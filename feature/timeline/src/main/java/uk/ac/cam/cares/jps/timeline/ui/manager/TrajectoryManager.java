@@ -45,6 +45,9 @@ import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.TrajectoryViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
+import uk.ac.cam.cares.jps.timeline.viewmodel.TripAgentViewModel;
+import java.time.LocalDate;
+
 /**
  * An UI manager that manages the drawing and removing of trajectories received from server
  */
@@ -56,6 +59,8 @@ public class TrajectoryManager {
     private final Map<String, String> activityColors = new HashMap<>();
     private String layerId;
 
+    private final TripAgentViewModel tripAgentViewModel;
+
 
     /**
      * Constructor of the class
@@ -63,6 +68,7 @@ public class TrajectoryManager {
      * @param fragment Host fragment
      * @param mapView  Mapbox map view
      */
+    /*
     public TrajectoryManager(Fragment fragment, MapView mapView) {
         trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
@@ -88,6 +94,44 @@ public class TrajectoryManager {
                 removeAllLayers(style);
                 if (!trajectoryByDate.getTrajectoryStr().isEmpty()) {
                     paintTrajectoryByActivity(style, trajectoryByDate, activityColors, "default");
+                    addTrajectoryClickListener(mapView, selectedColor, fragment.getViewLifecycleOwner());
+                }
+            });
+
+            resetCameraCentre(mapView, trajectoryByDate);
+        });
+    }
+    */
+   // was: activityColors keyed by "walking"/"still"/"vehicle"/"bike"/"default"
+    private final Map<String, String> tripColors = new HashMap<>();
+
+    public TrajectoryManager(Fragment fragment, MapView mapView) {
+        trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
+        normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
+        tripAgentViewModel = new ViewModelProvider(fragment).get(TripAgentViewModel.class);
+
+        // trip == 0 (stationary/stay segment) gets one color
+        tripColors.put("0", "#FF0000");
+        // any other trip number gets the other color
+        tripColors.put("default", "#008000");
+
+        String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
+
+        // TrajectoryManager's click listener — back to just passing the date
+        fragment.requireView().findViewById(R.id.run_trip_agent_button)
+                .setOnClickListener(v -> tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue()));
+
+        trajectoryViewModel.trajectory.observe(fragment.getViewLifecycleOwner(), trajectoryByDate -> {
+            trajectoryViewModel.removeAllClicked();
+            if (!trajectoryByDate.getDate().equals(normalBottomSheetViewModel.selectedDate.getValue())) {
+                trajectoryViewModel.setFetching(true);
+                return;
+            }
+
+            mapView.getMapboxMap().getStyle(style -> {
+                removeAllLayers(style);
+                if (!trajectoryByDate.getTrajectoryStr().isEmpty()) {
+                    paintTrajectoryByUserId(style, trajectoryByDate, tripColors, "default");
                     addTrajectoryClickListener(mapView, selectedColor, fragment.getViewLifecycleOwner());
                 }
             });
@@ -127,7 +171,7 @@ public class TrajectoryManager {
                             Feature feature = clickedFeature.getFeature();
 
                             Integer segmentId = feature.hasProperty("id") ? feature.getNumberProperty("id").intValue() : null;
-                            String sessionId = feature.hasProperty("session_id") ? feature.getStringProperty("session_id") : null;
+                            String sessionId = feature.hasProperty("trip") ? feature.getStringProperty("trip") : null;
 
                             if (segmentId != null && sessionId != null) {
                                 trajectoryViewModel.setClickedSegment(segmentId, sessionId);
@@ -176,7 +220,7 @@ public class TrajectoryManager {
 
             JSONArray sessionFilter = new JSONArray();
             sessionFilter.put("==");
-            sessionFilter.put("session_id");
+            sessionFilter.put("trip");
             sessionFilter.put(clickedSegment.getSessionId());
 
             filter.put(idFilter);
@@ -250,6 +294,66 @@ public class TrajectoryManager {
             throw new RuntimeException(e);
         }
 
+
+        Expected<String, None> layerSuccess = style.addStyleLayer(
+                Objects.requireNonNull(Value.fromJson(layerJson.toString()).getValue()),
+                new LayerPosition(null, null, null)
+        );
+        LOGGER.debug("trajectory: layer created " + (layerSuccess.isError() ? layerSuccess.getError() : "success"));
+
+        layerNames.add(mode);
+    }
+
+    /**
+     * Paints the trajectory on the map, coloring segments by trip number:
+     * trip == 0 gets one color, any other trip number gets the other.
+     */
+    private void paintTrajectoryByUserId(Style style, TrajectoryByDate trajectoryArr, Map<String, String> tripColors, String mode) {
+        String trajectory = trajectoryArr.getTrajectoryStr();
+        JSONObject sourceJson = new JSONObject();
+        try {
+            sourceJson.put("type", "geojson");
+            sourceJson.put("data", trajectory);
+        } catch (JSONException e) {
+            throw new RuntimeException(e);
+        }
+
+        Expected<String, None> success = style.addStyleSource(
+                "trajectory_" + mode,
+                Objects.requireNonNull(Value.fromJson(sourceJson.toString()).getValue())
+        );
+        LOGGER.debug("trajectory: source created " + (success.isError() ? success.getError() : "success"));
+
+        JSONObject layerJson = new JSONObject();
+        try {
+            layerJson.put("id", "trajectory_layer_" + mode);
+            layerJson.put("type", "line");
+            layerJson.put("source", "trajectory_" + mode);
+            layerJson.put("line-join", "bevel");
+
+            this.layerId = "trajectory_layer_" + mode;
+
+            JSONArray colorExpression = new JSONArray();
+            colorExpression.put("match");
+            colorExpression.put(new JSONArray().put("get").put("trip"));
+
+            for (Map.Entry<String, String> entry : tripColors.entrySet()) {
+                if (!entry.getKey().equals("default")) {
+                    // "trip" is numeric in the GeoJSON, so the match case must be a numeric literal, not a string
+                    colorExpression.put(Integer.parseInt(entry.getKey()));
+                    colorExpression.put(entry.getValue());
+                }
+            }
+
+            colorExpression.put(tripColors.get("default"));
+
+            JSONObject paint = new JSONObject();
+            paint.put("line-color", colorExpression);
+            paint.put("line-width", 6);
+            layerJson.put("paint", paint);
+        } catch (JSONException e) {
+            throw new RuntimeException(e);
+        }
 
         Expected<String, None> layerSuccess = style.addStyleLayer(
                 Objects.requireNonNull(Value.fromJson(layerJson.toString()).getValue()),

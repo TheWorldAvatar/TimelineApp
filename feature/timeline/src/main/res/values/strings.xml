@@ -12,4 +12,9 @@
     <string name="tool_tips">Tool Tips</string>
     <string name="start_stop_recording">Start or Stop Recording</string>
     <string name="tips_information">(1) Click trajectory lines to find the connected information the bottom sheet. \n(2) To view more or less about a trip, click on the trip name.</string>
+    <string name="hawker_centre">Hawker Centre</string>
+    <string name="close">Close</string>
+    <string name="trip_visit_label">Visit</string>
+    <string name="trip_number_label">Trip</string>
+    <string name="run_trip_agent">Run trip agent</string>
 </resources>

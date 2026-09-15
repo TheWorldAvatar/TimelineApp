@@ -8,13 +8,14 @@
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
 .DS_Store
-**/build/
-**/.gradle/
+/build
 /captures
 .externalNativeBuild
 .cxx
 local.properties
 /.idea
+**/build/
+.gradle/
 
 /feature/routing
 /feature/locationtracking

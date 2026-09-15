@@ -91,6 +91,8 @@ public class TripExposurePipelineWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
+        return Result.success();
+        /* 
         String deviceId = getInputData().getString("deviceId");
         if (deviceId == null || deviceId.isEmpty()) {
             LOGGER.error("No deviceId passed to TripExposurePipelineWorker, aborting.");
@@ -107,6 +109,7 @@ public class TripExposurePipelineWorker extends Worker {
             LOGGER.error("Trip/exposure pipeline failed: " + e.getMessage());
             return Result.retry();
         }
+        */
     }
 
     /**

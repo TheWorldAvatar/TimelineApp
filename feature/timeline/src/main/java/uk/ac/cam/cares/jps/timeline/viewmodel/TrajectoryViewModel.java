@@ -100,12 +100,12 @@ public class TrajectoryViewModel extends ViewModel implements SegmentClickInterf
         _clickedSegment.postValue(null);
     }
 
-    private long calculateLowerbound(LocalDate date) {
+    public static long calculateLowerbound(LocalDate date) {
         ZonedDateTime startOfDay = date.atStartOfDay(ZoneId.systemDefault());
         return startOfDay.toInstant().toEpochMilli();
     }
 
-    private long calculateUpperbound(LocalDate date) {
+    public static long calculateUpperbound(LocalDate date) {
         ZonedDateTime endOfDay = date.atTime(23, 59, 59, 999999999)
                 .atZone(ZoneId.systemDefault());
         return endOfDay.toInstant().toEpochMilli();
