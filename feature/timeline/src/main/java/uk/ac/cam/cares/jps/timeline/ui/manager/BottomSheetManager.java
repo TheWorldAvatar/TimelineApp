@@ -22,6 +22,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 
 import uk.ac.cam.cares.jps.login.AccountException;
 import uk.ac.cam.cares.jps.sensor.source.state.SensorCollectionStateException;
@@ -36,6 +37,9 @@ import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.TrajectoryViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.UserPhoneViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
+
+import android.view.View;
+import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 
 /**
  * An UI manager that manages bottom sheets on screen and switches in between different bottom sheets
@@ -61,6 +65,10 @@ public class BottomSheetManager {
     private final MaterialAlertDialogBuilder sessionExpiredDialog;
     private GreyOutDecorator greyOutDecorator;
 
+    private final View tripDetailBubble;
+    private final TextView tripDetailIdTv;
+    private final TextView tripDetailDistanceTv;
+
     /**
      * Constructor of the class
      *
@@ -83,6 +91,14 @@ public class BottomSheetManager {
         this.bottomSheetContainer = bottomSheetContainer;
         this.bottomSheetBehavior = BottomSheetBehavior.from(bottomSheetContainer);
         greyOutDecorator = new GreyOutDecorator();
+
+        View rootView = fragment.requireView();
+        tripDetailBubble = rootView.findViewById(R.id.trip_detail_bubble);
+        tripDetailIdTv = rootView.findViewById(R.id.trip_detail_id_tv);
+        tripDetailDistanceTv = rootView.findViewById(R.id.trip_detail_distance_tv);
+        tripDetailBubble.findViewById(R.id.trip_detail_close_bt)
+                .setOnClickListener(v -> trajectoryViewModel.removeAllClicked());
+
         initBottomSheet();
     }
 
@@ -130,8 +146,30 @@ public class BottomSheetManager {
 
         trajectoryViewModel.clickedSegment.observe(lifecycleOwner, clickedId -> {
             normalBottomSheet.highlightClickedSegment(clickedId);
+            updateTripDetailBubble(clickedId);
         });
     }
+
+    private void updateTripDetailBubble(TrajectorySegment clickedSegment) {
+        if (clickedSegment != null) {
+            tripDetailIdTv.setText(String.format(Locale.getDefault(), "%s %d", getTripLabel(clickedSegment).trim(), clickedSegment.getId()));
+            tripDetailDistanceTv.setText(formatDistance(clickedSegment.getDistanceTraveled()));
+            tripDetailBubble.setVisibility(View.VISIBLE);
+        } else {
+            tripDetailBubble.setVisibility(View.GONE);
+        }
+    }
+
+    private String getTripLabel(TrajectorySegment segment) {
+        int stringRes = segment.getTrip() == 0 ? R.string.trip_visit_label : R.string.trip_number_label;
+        return context.getString(stringRes, segment.getId());
+    }
+
+    private String formatDistance(int meters) {
+        return meters >= 1000
+                ? String.format("%.1f km", meters / 1000.0)
+                : meters + " m";
+    }    
 
 
     private void configureDateSelection() {

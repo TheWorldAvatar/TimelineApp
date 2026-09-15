@@ -19,6 +19,12 @@ import okhttp3.HttpUrl;
 import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
 import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
 
+import java.io.IOException;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 import static uk.ac.cam.cares.jps.utils.Utils.computeHash;
 /**
  * A class that commits data to the network database.
@@ -30,12 +36,60 @@ public class SensorNetworkSource {
     SensorLocalSource sensorLocalSource;
     int messageId;
 
+    private final OkHttpClient httpClient = new OkHttpClient();
+
+    public interface UploadCallback {
+        void onSuccess();
+        void onFailure();
+    }
+
+
     public SensorNetworkSource(Context applicationContext,
                                RequestQueue requestQueue,
                                SensorLocalSource sensorLocalSource) {
         context = applicationContext;
         this.requestQueue = requestQueue;
         this.sensorLocalSource = sensorLocalSource;
+    }
+
+    public boolean sendPostRequestSync(String deviceId, String sessionId, byte[] compressedData, String hashedSensorData) throws IOException {
+        String url = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
+                .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.sensorloggeragent_update))
+                .build().toString();
+
+        String compressedDataString = Base64.encodeToString(compressedData, Base64.NO_WRAP);
+
+        JSONObject postData = new JSONObject();
+        try {
+            postData.put("deviceId", deviceId);
+            postData.put("messageId", messageId++);
+            postData.put("sessionId", sessionId);
+            postData.put("compressedData", compressedDataString);
+        } catch (JSONException e) {
+            LOGGER.error("Error building payload", e);
+            return false;
+        }
+
+        RequestBody body = RequestBody.create(
+                postData.toString().getBytes(StandardCharsets.UTF_8),
+                MediaType.parse("application/json; charset=utf-8"));
+
+        okhttp3.Request request = new okhttp3.Request.Builder().url(url).post(body).build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (response.isSuccessful()) {
+                LOGGER.info("Upload succeeded: " + response.code());
+                return true;
+            } else {
+                LOGGER.error("Upload failed with status " + response.code());
+                return false;
+            }
+        }
+    }
+
+    public boolean sendPostRequestSync(String deviceId, String sessionId, byte[] compressedData, JSONArray sensorData) throws IOException {
+        String hashedSensorData = computeHash(sensorData.toString());
+        return sendPostRequestSync(deviceId, sessionId, compressedData, hashedSensorData);
     }
 
     /**

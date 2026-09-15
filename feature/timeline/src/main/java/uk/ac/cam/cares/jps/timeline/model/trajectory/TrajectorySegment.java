@@ -11,6 +11,7 @@ public class TrajectorySegment {
     private final int id;
     private final String activityType;
     private final String sessionId;
+    private final int trip; 
     private final JSONObject geom;
     private final int distanceTraveled;
     private final String userIri;
@@ -24,6 +25,7 @@ public class TrajectorySegment {
                       int id,
                       String activityType,
                       String sessionId,
+                      int trip,   
                       JSONObject geom,
                       JSONArray bbox,
                       int distanceTraveled,
@@ -35,6 +37,7 @@ public class TrajectorySegment {
         this.id = id;
         this.activityType = activityType;
         this.sessionId = sessionId;
+        this.trip = trip; 
         this.geom = geom;
         this.bbox = bbox;
         this.distanceTraveled = distanceTraveled;
@@ -91,5 +94,9 @@ public class TrajectorySegment {
 
     public JSONArray getBbox() {
         return bbox;
+    }
+
+    public int getTrip() {
+        return this.trip;
     }
 }

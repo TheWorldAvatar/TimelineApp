@@ -22,6 +22,20 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import android.os.Handler;
+import android.os.Looper;
+
+import com.google.android.gms.location.CurrentLocationRequest;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationRequest;
+
+
+
+
 
 /**
  * Handles location updates and atmospheric pressure readings. This class integrates with both the
@@ -43,6 +57,44 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
     private boolean isRunning = false;
     private final Object sensorDataLock = new Object(); // Lock object for synchronization
 
+    private Location latestLocation;
+    private FusedLocationProviderClient fusedLocationClient;
+    private LocationCallback locationCallback;
+
+
+    private final Handler locationRecordHandler =
+            new Handler(Looper.getMainLooper());
+
+    private final Runnable locationRecordRunnable =
+            new Runnable() {
+                @Override
+                public void run() {
+
+                    if (!isRunning) {
+                        return;
+                    }
+
+                    Location location;
+
+                    synchronized (sensorDataLock) {
+                        location = latestLocation;
+                    }
+
+                    if (location != null) {
+                        recordLocation(location);
+                    } else {
+                        LOGGER.warn(
+                                "LOCATION: no location available to record"
+                        );
+                    }
+
+                    locationRecordHandler.postDelayed(
+                            this,
+                            2000
+                    );
+                }
+            };
+
     /**
      * Constructs a LocationHandler with a specified context and initializes location and pressure sensors.
      *
@@ -53,9 +105,142 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
         this.sensorManager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
         this.pressureSensor = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE);
         this.locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
+        this.fusedLocationClient = LocationServices.getFusedLocationProviderClient(context);
         this.locationData = new JSONArray();
         this.mslConstant = 1006;
     }
+
+    
+
+    private void requestCurrentLocation() {
+
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+        ) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+        ) != PackageManager.PERMISSION_GRANTED) {
+
+            LOGGER.warn("LOCATION: permission not granted");
+            return;
+        }
+
+        CurrentLocationRequest request =
+                new CurrentLocationRequest.Builder()
+                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                        .setMaxUpdateAgeMillis(0)
+                        .setDurationMillis(30_000)
+                        .build();
+
+        LOGGER.info(
+                "LOCATION: requesting fresh fused location"
+        );
+
+        fusedLocationClient.getCurrentLocation(
+                request,
+                null
+        ).addOnSuccessListener(location -> {
+
+            if (location == null) {
+
+                LOGGER.warn(
+                        "LOCATION: fused getCurrentLocation returned NULL"
+                );
+
+                return;
+            }
+
+            LOGGER.info(
+                    "LOCATION: FRESH FUSED FIX:"
+                            + " lat=" + location.getLatitude()
+                            + ", lon=" + location.getLongitude()
+                            + ", accuracy=" + location.getAccuracy()
+                            + ", provider=" + location.getProvider()
+                            + ", time=" + location.getTime()
+            );
+
+            synchronized (sensorDataLock) {
+                latestLocation = location;
+            }
+
+            locationRecordHandler.post(locationRecordRunnable);
+
+        }).addOnFailureListener(e -> {
+
+            LOGGER.error(
+                    "LOCATION: fused getCurrentLocation failed",
+                    e
+            );
+        });
+    }
+
+    private void startFusedLocationUpdates() {
+
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+        ) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+        ) != PackageManager.PERMISSION_GRANTED) {
+
+            LOGGER.warn("LOCATION: permission not granted");
+            return;
+        }
+
+        LocationRequest locationRequest =
+                LocationRequest.create()
+                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                        .setInterval(2000)
+                        .setFastestInterval(1000);
+
+        locationCallback = new LocationCallback() {
+
+            @Override
+            public void onLocationResult(
+                    LocationResult locationResult) {
+
+                if (locationResult == null) {
+                    return;
+                }
+
+                for (Location location :
+                        locationResult.getLocations()) {
+
+                    if (location == null) {
+                        continue;
+                    }
+
+                    synchronized (sensorDataLock) {
+                        latestLocation = location;
+                    }
+
+                    LOGGER.info(
+                            "LOCATION: fused update:"
+                                    + " lat=" + location.getLatitude()
+                                    + ", lon=" + location.getLongitude()
+                                    + ", accuracy=" + location.getAccuracy()
+                                    + ", speed=" + location.getSpeed()
+                                    + ", time=" + location.getTime()
+                    );
+                }
+            }
+        };
+
+        fusedLocationClient.requestLocationUpdates(
+                locationRequest,
+                locationCallback,
+                Looper.getMainLooper()
+        );
+
+        LOGGER.info(
+                "LOCATION: continuous fused updates started"
+        );
+    }
+
 
     /**
      * Starts location and pressure data updates. Requires fine location permission to function properly.
@@ -70,33 +255,67 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
         startLocationUpdates();
     }
 
-    // Private method to encapsulate the logic for starting location updates
     private void startLocationUpdates() {
-        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            LOGGER.warn("Location permission not granted. Location handler failed to start. Request for permission should be handled in fragment.");
+
+        LOGGER.info("LOCATION: startLocationUpdates() called");
+
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+        ) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+        ) != PackageManager.PERMISSION_GRANTED) {
+
+            LOGGER.warn("LOCATION: permission not granted");
             return;
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 0, this);
-        } else {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 0, this);
-        }
+        isRunning = true;
+
+        LOGGER.info("LOCATION: handler is now running");
+
+        // Ask Google Fused Location for a fresh location.
+        requestCurrentLocation();
+
+        // Keep receiving location updates afterwards.
+        startFusedLocationUpdates();
 
         if (pressureSensor != null) {
-            sensorManager.registerListener(this, pressureSensor, SensorManager.SENSOR_DELAY_NORMAL);
+            sensorManager.registerListener(
+                    this,
+                    pressureSensor,
+                    SensorManager.SENSOR_DELAY_NORMAL
+            );
         }
-        this.isRunning = true;
     }
+
+
     /**
      * Stops location and pressure data updates.
      */
     @Override
     public void stop() {
+        isRunning = false;
+
         locationManager.removeUpdates(this);
         sensorManager.unregisterListener(this);
-        this.isRunning = false;
+
+        locationRecordHandler.removeCallbacks(locationRecordRunnable);
+
+        if (locationCallback != null) {
+            fusedLocationClient.removeLocationUpdates(locationCallback);
+            locationCallback = null;
+        }
+
+        synchronized (sensorDataLock) {
+            latestLocation = null;
+        }
+
+        LOGGER.info("LOCATION: handler stopped");
     }
+
 
     /**
      * Callback for sensor data changes, specifically for the atmospheric pressure sensor.
@@ -115,8 +334,46 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
      *
      * @param location The new location object containing updated latitude, longitude, and other data.
      */
+
+    
     @Override
     public void onLocationChanged(Location location) {
+
+        if (!isRunning) {
+            return;
+        }
+
+        synchronized (sensorDataLock) {
+            latestLocation = location;
+        }
+
+        LOGGER.info(
+                "LOCATION: new location update:"
+                        + " lat=" + location.getLatitude()
+                        + ", lon=" + location.getLongitude()
+                        + ", accuracy=" + location.getAccuracy()
+                        + ", speed=" + location.getSpeed()
+                        + ", time=" + location.getTime()
+        );
+    }
+
+    
+
+    private void recordLocation(Location location) {
+        // your existing JSON creation code
+        LOGGER.info(
+                "LOCATION RECORD: adding location to memory buffer"
+        );
+
+        LOGGER.info(
+            "LOCATION RECORD: lat=" + location.getLatitude()
+            + ", lon=" + location.getLongitude()
+            + ", accuracy=" + location.getAccuracy()
+            + ", speed=" + location.getSpeed()
+            + ", gpsTime=" + location.getTime()
+        );
+
+
         synchronized (sensorDataLock) {
             double altitude = SensorManager.getAltitude(mslConstant, currentPressure);
 
@@ -149,6 +406,9 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
      */
     @Override
     public void clearSensorData() {
+        LOGGER.info(
+                "LOCATION DATA CLEARED: memory buffer flushed"
+        );
         synchronized (sensorDataLock) {
             locationData = new JSONArray();
         }
@@ -161,6 +421,12 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
      */
     @Override
     public JSONArray getSensorData() {
+        LOGGER.info(
+                "LOCATION DATA READ: returning "
+                        + locationData.length()
+                        + " records"
+        );
+
         synchronized (sensorDataLock) {
             try {
                 return new JSONArray(locationData.toString());

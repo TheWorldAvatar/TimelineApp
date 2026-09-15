@@ -21,6 +21,9 @@ public class AppPreferenceRepository {
     private final String KEY_AUTO_START_ENABLED = "autostart_enabled";
     private final String KEY_LOCATION_PERMISSION_PROMPTED = "location_permission_prompted";
     private final String KEY_TOOLTIPS_SKIP = "tooltip_skip";
+    private final String KEY_EXPOSURE_DATASET = "exposure_dataset";
+    private final String KEY_EXPOSURE_CALC_TYPE = "exposure_calc_type";
+    private final String KEY_EXPOSURE_DISTANCE = "exposure_distance";
 
     public AppPreferenceRepository(LoginRepository loginRepository, Context applicationContext) {
         this.context = applicationContext;
@@ -108,5 +111,26 @@ public class AppPreferenceRepository {
 
     public void setTooltipSkipped(Boolean tooltipSkipped) {
         setFieldInSharedPref(KEY_TOOLTIPS_SKIP, tooltipSkipped);
+    }
+
+    public void getExposureDataset(RepositoryCallback<String> callback) {
+        getFieldFromSharedPref(callback, KEY_EXPOSURE_DATASET, String.class);
+    }
+    public void setExposureDataset(String value) {
+        setFieldInSharedPref(KEY_EXPOSURE_DATASET, value);
+    }
+
+    public void getExposureCalcType(RepositoryCallback<String> callback) {
+        getFieldFromSharedPref(callback, KEY_EXPOSURE_CALC_TYPE, String.class);
+    }
+    public void setExposureCalcType(String value) {
+        setFieldInSharedPref(KEY_EXPOSURE_CALC_TYPE, value);
+    }
+
+    public void getExposureDistance(RepositoryCallback<String> callback) {
+        getFieldFromSharedPref(callback, KEY_EXPOSURE_DISTANCE, String.class);
+    }
+    public void setExposureDistance(String value) {
+        setFieldInSharedPref(KEY_EXPOSURE_DISTANCE, value);
     }
 }

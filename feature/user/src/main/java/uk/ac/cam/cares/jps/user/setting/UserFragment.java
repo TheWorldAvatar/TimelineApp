@@ -54,6 +54,7 @@ public class UserFragment extends Fragment {
         binding.sensorSetting.setOnClickListener(view1 -> NavHostFragment.findNavController(this). navigate(R.id.action_global_sensor_setting));
         binding.helpPage.setOnClickListener(view1 -> NavHostFragment.findNavController(this). navigate(R.id.action_global_help_page));
         binding.timelineSetting.setOnClickListener(view1 -> NavHostFragment.findNavController(this). navigate(R.id.action_global_timeline_setting));
+        binding.exposureSetting.setOnClickListener(v -> NavHostFragment.findNavController(this).navigate(R.id.action_global_exposure_setting));
 
         // todo: unimplemented button
         binding.healthReport.setOnClickListener(view1 -> UiUtils.showNotImplementedDialog(requireContext()));

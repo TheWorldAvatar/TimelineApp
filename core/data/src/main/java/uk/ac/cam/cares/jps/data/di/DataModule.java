@@ -15,6 +15,11 @@ import uk.ac.cam.cares.jps.data.TrajectoryRepository;
 import uk.ac.cam.cares.jps.login.LoginRepository;
 import uk.ac.cam.cares.jps.network.DatesWithTrajectoryNetworkSource;
 import uk.ac.cam.cares.jps.network.TrajectoryNetworkSource;
+import uk.ac.cam.cares.jps.data.HawkerCentreRepository;
+import uk.ac.cam.cares.jps.network.HawkerCentreNetworkSource;
+
+import uk.ac.cam.cares.jps.data.TripAgentRepository;
+import uk.ac.cam.cares.jps.network.TripAgentNetworkSource;
 
 /**
  * Dependency injection specification for data module
@@ -43,5 +48,20 @@ public class DataModule {
     public AppPreferenceRepository provideAppPreferenceRepository(LoginRepository loginRepository,
                                                                         @ApplicationContext Context context) {
         return new AppPreferenceRepository(loginRepository, context);
+    }
+
+    @Provides
+    @Singleton
+    public HawkerCentreRepository provideHawkerCentreRepository(HawkerCentreNetworkSource hawkerCentreNetworkSource,
+                                                                LoginRepository loginRepository) {
+        return new HawkerCentreRepository(hawkerCentreNetworkSource, loginRepository);
+    }
+
+    @Provides
+    @Singleton
+    public TripAgentRepository provideTripAgentRepository(TripAgentNetworkSource tripAgentNetworkSource,
+                                                            LoginRepository loginRepository,
+                                                            @ApplicationContext Context context) {
+        return new TripAgentRepository(tripAgentNetworkSource, loginRepository, context);
     }
 }
