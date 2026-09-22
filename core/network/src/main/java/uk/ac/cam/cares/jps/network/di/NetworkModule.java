@@ -16,6 +16,10 @@ import uk.ac.cam.cares.jps.network.HawkerCentreNetworkSource;
 import uk.ac.cam.cares.jps.network.TrajectoryNetworkSource;
 import uk.ac.cam.cares.jps.network.TripAgentNetworkSource;
 
+import uk.ac.cam.cares.jps.network.ExposureCalculationAgentNetworkSource;
+import uk.ac.cam.cares.jps.network.ExposureFeatureInfoNetworkSource;
+import uk.ac.cam.cares.jps.network.BlazegraphNetworkSource;
+
 @Module
 @InstallIn(SingletonComponent.class)
 public class NetworkModule {
@@ -31,7 +35,7 @@ public class NetworkModule {
         return new DatesWithTrajectoryNetworkSource(requestQueue, context);
     }
 
-        @Provides
+    @Provides
     @Singleton
     public HawkerCentreNetworkSource provideHawkerCentreNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
         return new HawkerCentreNetworkSource(requestQueue, context);
@@ -41,6 +45,23 @@ public class NetworkModule {
     @Singleton
     public TripAgentNetworkSource provideTripAgentNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
         return new TripAgentNetworkSource(requestQueue, context);
+    }
+
+    @Provides
+    @Singleton
+    public ExposureCalculationAgentNetworkSource provideExposureCalculationAgentNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
+        return new ExposureCalculationAgentNetworkSource(requestQueue, context);
+    }
+
+    @Provides @Singleton
+    public ExposureFeatureInfoNetworkSource provideExposureFeatureInfoNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
+        return new ExposureFeatureInfoNetworkSource(requestQueue, context);
+    }
+
+    @Provides
+    @Singleton
+    public BlazegraphNetworkSource provideBlazegraphNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
+        return new BlazegraphNetworkSource(requestQueue, context);
     }
 
 }

@@ -25,6 +25,7 @@ import dagger.assisted.AssistedInject;
 import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
 import uk.ac.cam.cares.jps.sensor.source.handler.SensorType;
 import uk.ac.cam.cares.jps.sensor.source.network.SensorNetworkSource;
+import uk.ac.cam.cares.jps.login.LoginRepository;
 
 @HiltWorker
 public class SensorUploadWorker extends Worker {
@@ -35,14 +36,17 @@ public class SensorUploadWorker extends Worker {
     private String deviceId;
     private String sessionId;
     private List<SensorType> selectedSensors;
+    private final LoginRepository loginRepository;
 
     @AssistedInject
     public SensorUploadWorker(@NonNull @Assisted Context context, @NonNull @Assisted WorkerParameters workerParams,
-                              SensorNetworkSource sensorNetworkSource,
-                              SensorLocalSource sensorLocalSource) {
+                            SensorNetworkSource sensorNetworkSource,
+                            SensorLocalSource sensorLocalSource,
+                            LoginRepository loginRepository) {   // add param
         super(context, workerParams);
         this.sensorNetworkSource = sensorNetworkSource;
         this.sensorLocalSource = sensorLocalSource;
+        this.loginRepository = loginRepository;
         deviceId = workerParams.getInputData().getString("deviceId");
         sessionId = workerParams.getInputData().getString("sessionId");
         String selectedSensorsJson = workerParams.getInputData().getString("selectedSensors");
@@ -77,6 +81,7 @@ public class SensorUploadWorker extends Worker {
     private void uploadSensorData() throws IOException {
         int PAGE_SIZE = 800;
         boolean hasMoreData = true;
+        
 
         while (hasMoreData) {
             // Offset stays 0: confirmed-uploaded rows drop out of the
@@ -92,8 +97,9 @@ public class SensorUploadWorker extends Worker {
             String jsonString = allSensorData.toString();
             byte[] compressedData = compressData(jsonString);
 
+            String accessToken = fetchAccessTokenBlocking();
             LOGGER.info("Attempting to send " + allSensorData.length() + " items to the network.");
-            boolean success = sensorNetworkSource.sendPostRequestSync(deviceId, sessionId, compressedData, allSensorData);
+            boolean success = sensorNetworkSource.sendPostRequestSync(deviceId, sessionId, compressedData, allSensorData, accessToken);
 
             if (success) {
                 // Mark uploaded only now that delivery is confirmed.
@@ -108,6 +114,40 @@ public class SensorUploadWorker extends Worker {
                 hasMoreData = false;
             }
         }
+    }
+
+    private String fetchAccessTokenBlocking() throws IOException {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<String> tokenRef = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+        loginRepository.getAccessToken(new uk.ac.cam.cares.jps.utils.RepositoryCallback<String>() {
+            @Override
+            public void onSuccess(String token) {
+                tokenRef.set(token);
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                errorRef.set(error);
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while waiting for access token", e);
+        }
+
+        if (errorRef.get() != null) {
+            throw new IOException("Failed to fetch access token", errorRef.get());
+        }
+        
+        LOGGER.info("Using access token ending in: " + tokenRef.get().substring(Math.max(0, tokenRef.get().length() - 10)));
+        return tokenRef.get();
     }
 
 }

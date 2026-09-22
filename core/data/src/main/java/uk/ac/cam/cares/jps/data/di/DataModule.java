@@ -21,6 +21,15 @@ import uk.ac.cam.cares.jps.network.HawkerCentreNetworkSource;
 import uk.ac.cam.cares.jps.data.TripAgentRepository;
 import uk.ac.cam.cares.jps.network.TripAgentNetworkSource;
 
+import uk.ac.cam.cares.jps.data.ExposureCalculationAgentRepository;
+import uk.ac.cam.cares.jps.network.ExposureCalculationAgentNetworkSource;
+
+import uk.ac.cam.cares.jps.data.ExposureFeatureInfoRepository;
+import uk.ac.cam.cares.jps.network.ExposureFeatureInfoNetworkSource;
+
+import uk.ac.cam.cares.jps.data.ExposureDatasetRepository;      
+import uk.ac.cam.cares.jps.network.BlazegraphNetworkSource;      
+
 /**
  * Dependency injection specification for data module
  */
@@ -64,4 +73,23 @@ public class DataModule {
                                                             @ApplicationContext Context context) {
         return new TripAgentRepository(tripAgentNetworkSource, loginRepository, context);
     }
+
+    @Provides
+    @Singleton
+    public ExposureCalculationAgentRepository provideExposureCalculationAgentRepository(ExposureCalculationAgentNetworkSource exposureCalculationAgentNetworkSource,
+                                                                                        AppPreferenceRepository appPreferenceRepository) {
+        return new ExposureCalculationAgentRepository(exposureCalculationAgentNetworkSource, appPreferenceRepository);
+    }
+
+    @Provides @Singleton
+    public ExposureFeatureInfoRepository provideExposureFeatureInfoRepository(
+            ExposureFeatureInfoNetworkSource networkSource, LoginRepository loginRepository) {
+        return new ExposureFeatureInfoRepository(networkSource, loginRepository);
+    }
+
+    @Provides
+    @Singleton
+    public ExposureDatasetRepository provideExposureDatasetRepository(BlazegraphNetworkSource networkSource) {
+        return new ExposureDatasetRepository(networkSource);
+    } 
 }

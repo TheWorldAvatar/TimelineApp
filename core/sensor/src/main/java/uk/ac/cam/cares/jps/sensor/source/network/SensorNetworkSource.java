@@ -16,6 +16,7 @@ import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
 import okhttp3.HttpUrl;
+import uk.ac.cam.cares.jps.login.LoginRepository;
 import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
 import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
 
@@ -34,6 +35,7 @@ public class SensorNetworkSource {
     RequestQueue requestQueue;
     Logger LOGGER = Logger.getLogger(SensorNetworkSource.class);
     SensorLocalSource sensorLocalSource;
+    LoginRepository loginRepository;
     int messageId;
 
     private final OkHttpClient httpClient = new OkHttpClient();
@@ -46,13 +48,15 @@ public class SensorNetworkSource {
 
     public SensorNetworkSource(Context applicationContext,
                                RequestQueue requestQueue,
-                               SensorLocalSource sensorLocalSource) {
+                               SensorLocalSource sensorLocalSource,
+                               LoginRepository loginRepository) {
         context = applicationContext;
         this.requestQueue = requestQueue;
         this.sensorLocalSource = sensorLocalSource;
+        this.loginRepository = loginRepository;
     }
 
-    public boolean sendPostRequestSync(String deviceId, String sessionId, byte[] compressedData, String hashedSensorData) throws IOException {
+    public boolean sendPostRequestSync(String deviceId, String sessionId, byte[] compressedData, String hashedSensorData, String accessToken) throws IOException {
         String url = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
                 .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.sensorloggeragent_update))
                 .build().toString();
@@ -74,12 +78,20 @@ public class SensorNetworkSource {
                 postData.toString().getBytes(StandardCharsets.UTF_8),
                 MediaType.parse("application/json; charset=utf-8"));
 
-        okhttp3.Request request = new okhttp3.Request.Builder().url(url).post(body).build();
+        okhttp3.Request request = new okhttp3.Request.Builder()
+                .url(url)
+                .addHeader("Authorization", "Bearer " + accessToken)
+                .post(body)
+                .build();
 
         try (Response response = httpClient.newCall(request).execute()) {
             if (response.isSuccessful()) {
                 LOGGER.info("Upload succeeded: " + response.code());
                 return true;
+            } else if (response.code() == 401) {
+                LOGGER.warn("Upload rejected: invalid/expired token — forcing refresh next attempt");
+                loginRepository.invalidateAccessToken();
+                return false;
             } else {
                 LOGGER.error("Upload failed with status " + response.code());
                 return false;
@@ -87,9 +99,9 @@ public class SensorNetworkSource {
         }
     }
 
-    public boolean sendPostRequestSync(String deviceId, String sessionId, byte[] compressedData, JSONArray sensorData) throws IOException {
+    public boolean sendPostRequestSync(String deviceId, String sessionId, byte[] compressedData, JSONArray sensorData, String accessToken) throws IOException {
         String hashedSensorData = computeHash(sensorData.toString());
-        return sendPostRequestSync(deviceId, sessionId, compressedData, hashedSensorData);
+        return sendPostRequestSync(deviceId, sessionId, compressedData, hashedSensorData, accessToken);
     }
 
     /**
@@ -104,7 +116,7 @@ public class SensorNetworkSource {
      *                   used for local storage if the network request fails.
      * @throws UnsupportedEncodingException If the encoding is not supported during conversion to UTF-8.
      */
-    public void sendPostRequest(String deviceId, String sessionId, byte[] compressedData, String hashedSensorData) throws UnsupportedEncodingException {
+    public void sendPostRequest(String deviceId, String sessionId, byte[] compressedData, String hashedSensorData, String accessToken) throws UnsupportedEncodingException {
         String url = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
                 .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.sensorloggeragent_update))
                 .build().toString();
@@ -129,17 +141,14 @@ public class SensorNetworkSource {
 
         StringRequest postRequest = new StringRequest(Request.Method.POST, url,
                 response ->  LOGGER.info(response),
-
                 error -> {
-                LOGGER.error("Failed to send data to the server: " + error.toString());
-                    // Check for duplicates before inserting
+                    LOGGER.error("Failed to send data to the server: " + error.toString());
                     if (!sensorLocalSource.isDataInUnsentData(hashedSensorData)) {
                         UnsentData unsentData = new UnsentData();
                         unsentData.deviceId = deviceId;
                         unsentData.data = hashedSensorData.toString();
                         unsentData.timestamp = System.currentTimeMillis();
                         unsentData.dataHash = hashedSensorData;
-
                         sensorLocalSource.insertUnsentData(unsentData);
                     } else {
                         LOGGER.info("Data already in UnsentData. Skipping insertion.");
@@ -155,14 +164,21 @@ public class SensorNetworkSource {
             public String getBodyContentType() {
                 return "application/json; charset=utf-8";
             }
+
+            @Override
+            public java.util.Map<String, String> getHeaders() {
+                java.util.Map<String, String> headers = new java.util.HashMap<>();
+                headers.put("Authorization", "Bearer " + accessToken);
+                return headers;
+            }
         };
 
         requestQueue.add(postRequest);
     }
 
-    public void sendPostRequest(String deviceId, String sessionId, byte[] compressedData, JSONArray sensorData) throws UnsupportedEncodingException {
+    public void sendPostRequest(String deviceId, String sessionId, byte[] compressedData, JSONArray sensorData, String accessToken) throws UnsupportedEncodingException {
         String hashedSensorData = computeHash(sensorData.toString());
-        sendPostRequest(deviceId, sessionId, compressedData, hashedSensorData);
+        sendPostRequest(deviceId, sessionId, compressedData, hashedSensorData, accessToken);
     }
 
     public void resetMessageId() {

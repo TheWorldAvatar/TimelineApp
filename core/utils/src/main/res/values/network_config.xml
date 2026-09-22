@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="host_with_port">http://10.0.101.165:58085</string>
+    <string name="host_with_port">http://10.0.94.222:58085</string>
 
     <string name="trajectoryqueryagent_createLayer">trajectoryqueryagent/createLayer</string>
     <string name="trajectoryqueryagent_getDatesWithData">trajectoryqueryagent/getDatesWithData</string>
     <string name="useragent_registerphone">user-agent/registerPhone</string>
     <string name="geoserver_jwt_proxy_geoserver_twa_wfs">geoserver-jwt-proxy/geoserver/twa/wfs</string>
-    <string name="sensorloggeragent_update">sensorloggermobileappagent/update</string>
+    <string name="sensorloggeragent_update">sensorloggermobileappagent/update_for_timeline</string>
 
     <string name="tripagent_process_trajectory_for_timeline">trip-agent/process_trajectory_for_timeline</string>
     <string name="tripagent_processTrajectory">trip-agent/process_trajectory</string>
     <string name="exposurecalculationagent_triggerCalculation">exposure-calculation-agent/trigger_calculation/</string>
+    <string name="exposurefeatureinfoagent_timeline">exposure-feature-info-agent/timeline</string>
 
     <string name="hawkercentre_typename">twa:hawker_centres</string>
+    <string name="blazegraph_sparql_path">feature-info-agent/datasets</string>
 </resources>

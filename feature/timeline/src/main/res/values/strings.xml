@@ -17,4 +17,6 @@
     <string name="trip_visit_label">Visit</string>
     <string name="trip_number_label">Trip</string>
     <string name="run_trip_agent">Run trip agent</string>
+    <string name="previous">Previous</string>
+    <string name="next">Next</string>
 </resources>

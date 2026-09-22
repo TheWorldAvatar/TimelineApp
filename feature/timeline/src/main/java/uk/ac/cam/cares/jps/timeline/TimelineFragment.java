@@ -114,6 +114,8 @@ public class TimelineFragment extends Fragment {
         hawkerCentreManager = new HawkerCentreManager(this, mapView);
         binding.hawkerCentreButton.setOnClickListener(v -> hawkerCentreManager.toggleHawkerCentres());
 
+        setupTripDetailScroll();
+
         compassPlugin = mapView.getPlugin(Plugin.MAPBOX_COMPASS_PLUGIN_ID);
         if (compassPlugin != null) {
             compassPlugin.setEnabled(true);
@@ -310,4 +312,11 @@ public class TimelineFragment extends Fragment {
         recordingStateViewModel.startRecording();
         Toast.makeText(requireContext(), "Auto-start on", Toast.LENGTH_SHORT).show();
     }
+    
+    private void setupTripDetailScroll() {
+    binding.tripDetailScroll.setOnTouchListener((v, event) -> {
+        v.getParent().requestDisallowInterceptTouchEvent(true);
+        return false;
+    });
+}
 }

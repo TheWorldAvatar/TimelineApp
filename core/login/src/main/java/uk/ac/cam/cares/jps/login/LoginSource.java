@@ -258,6 +258,7 @@ public class LoginSource {
 
     public void getAccessToken(RepositoryCallback<String> callback) {
         performActionWithFreshTokens((accessToken, idToken, ex) -> {
+            authStateManager.replace(authStateManager.getCurrent());
             if (ex == null) {
                 callback.onSuccess(accessToken);
             } else {
@@ -266,9 +267,13 @@ public class LoginSource {
         });
     }
 
+    public void forceTokenRefresh() {
+        authStateManager.getCurrent().setNeedsTokenRefresh(true);
+    }
 
     public void getUserInfo(RepositoryCallback<User> callback) {
         AuthState.AuthStateAction getUserInfoAction = (accessToken, idToken, ex) -> {
+            authStateManager.replace(authStateManager.getCurrent());
             if (ex != null) {
                 LOGGER.warn("Failed to refresh access token. Reauthorization is needed.");
                 callback.onFailure(new AccountException(SESSION_EXPIRED));

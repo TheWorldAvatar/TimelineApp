@@ -34,3 +34,4 @@ local.properties
 /app/build
 
 *.png
+core/utils/src/main/res/values/developer_config.xml

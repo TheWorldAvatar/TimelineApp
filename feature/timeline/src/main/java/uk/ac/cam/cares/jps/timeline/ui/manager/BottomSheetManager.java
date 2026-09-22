@@ -4,6 +4,17 @@ import static android.view.ViewGroup.LayoutParams.MATCH_PARENT;
 
 import android.content.Context;
 import android.widget.TextView;
+import android.widget.ImageButton;
+import android.graphics.Typeface;
+import android.text.Spannable;
+import android.text.SpannableStringBuilder;
+import android.text.style.RelativeSizeSpan;
+import android.text.style.StyleSpan;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
+import androidx.core.widget.NestedScrollView;
+import androidx.appcompat.widget.LinearLayoutCompat;
+import android.widget.Toast;
 
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.fragment.app.Fragment;
@@ -21,6 +32,8 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.AbstractMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -40,6 +53,19 @@ import uk.ac.cam.cares.jps.timelinemap.R;
 
 import android.view.View;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
+
+import android.app.Activity;
+import uk.ac.cam.cares.jps.data.ExposureFeatureInfoRepository;
+import uk.ac.cam.cares.jps.utils.RepositoryCallback;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+import uk.ac.cam.cares.jps.timeline.viewmodel.ExposureFeatureInfoViewModel;
+import java.util.Iterator;
+import java.util.Map;
+
+import org.json.JSONException;
+
 
 /**
  * An UI manager that manages bottom sheets on screen and switches in between different bottom sheets
@@ -69,6 +95,25 @@ public class BottomSheetManager {
     private final TextView tripDetailIdTv;
     private final TextView tripDetailDistanceTv;
 
+    private final ImageButton tripDetailPrevBt;
+    private final ImageButton tripDetailNextBt;
+    private final TextView tripDetailPageIndicatorTv;
+
+    private float swipeStartX = 0f;
+    private float swipeStartY = 0f;
+    private static final int SWIPE_THRESHOLD = 100;
+
+    private final List<Map.Entry<String, CharSequence>> resultPages = new ArrayList<>();
+    private int currentPageIndex = 0;
+
+    // field, alongside the other ViewModels
+    private final ExposureFeatureInfoViewModel exposureFeatureInfoViewModel;
+
+    // track which trip is currently displayed, so a stale response can't overwrite a newer click
+    private TrajectorySegment pendingSegment;
+
+    private final NestedScrollView tripDetailScroll;
+
     /**
      * Constructor of the class
      *
@@ -81,6 +126,7 @@ public class BottomSheetManager {
         connectionViewModel = new ViewModelProvider(fragment).get(ConnectionViewModel.class);
         userPhoneViewModel = new ViewModelProvider(fragment).get(UserPhoneViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
+        exposureFeatureInfoViewModel = new ViewModelProvider(fragment).get(ExposureFeatureInfoViewModel.class);
 
         lifecycleOwner = fragment.getViewLifecycleOwner();
         context = fragment.requireContext();
@@ -92,12 +138,28 @@ public class BottomSheetManager {
         this.bottomSheetBehavior = BottomSheetBehavior.from(bottomSheetContainer);
         greyOutDecorator = new GreyOutDecorator();
 
+        
+
         View rootView = fragment.requireView();
         tripDetailBubble = rootView.findViewById(R.id.trip_detail_bubble);
         tripDetailIdTv = rootView.findViewById(R.id.trip_detail_id_tv);
         tripDetailDistanceTv = rootView.findViewById(R.id.trip_detail_distance_tv);
         tripDetailBubble.findViewById(R.id.trip_detail_close_bt)
                 .setOnClickListener(v -> trajectoryViewModel.removeAllClicked());
+        tripDetailScroll = tripDetailBubble.findViewById(R.id.trip_detail_scroll);
+
+        tripDetailPrevBt = tripDetailBubble.findViewById(R.id.trip_detail_prev_bt);
+        tripDetailNextBt = tripDetailBubble.findViewById(R.id.trip_detail_next_bt);
+        tripDetailPageIndicatorTv = tripDetailBubble.findViewById(R.id.trip_detail_page_indicator_tv);
+
+        tripDetailPrevBt.setOnClickListener(v -> showPreviousPage());
+        tripDetailNextBt.setOnClickListener(v -> showNextPage());
+
+        tripDetailBubble.setOnTouchListener((v, event) -> handleSwipeTouch(event));
+
+        tripDetailScroll.setOnTouchListener((v, event) -> handleSwipeTouch(event));
+
+        tripDetailDistanceTv.setOnTouchListener((v, event) -> handleSwipeTouch(event));
 
         initBottomSheet();
     }
@@ -123,6 +185,7 @@ public class BottomSheetManager {
         configureDateSelection();
         configureTrajectoryRetrieval();
         configureSummary();
+        configureExposureFeatureInfo();
     }
 
     private void configureTrajectoryRetrieval() {
@@ -150,26 +213,120 @@ public class BottomSheetManager {
         });
     }
 
+    private void configureExposureFeatureInfo() {
+        exposureFeatureInfoViewModel.timelineResults.observe(lifecycleOwner, json -> {
+            if (json == null || pendingSegment == null) return;
+            resultPages.clear();
+            try {
+                JSONObject group = findMatchingGroup(new JSONArray(json), pendingSegment);
+                if (group != null) {
+                    tripDetailIdTv.setText(formatTripKey(group.getString("key")));
+                    buildResultPages(group.getJSONObject("results"));
+                } else {
+                    tripDetailIdTv.setText("");
+                }
+            } catch (JSONException e) {
+                LOGGER.error("Failed to parse exposure timeline results: " + e.getMessage(), e);
+            }
+            currentPageIndex = 0;
+            showCurrentPage();
+        });
+        exposureFeatureInfoViewModel.error.observe(lifecycleOwner, error -> {
+            if (error != null) {
+                resultPages.clear();
+                showCurrentPage();
+            }
+        });
+    }
+
+    private void buildResultPages(JSONObject results) throws JSONException {
+        Iterator<String> datasetKeys = results.keys();
+        while (datasetKeys.hasNext()) {
+            String dataset = datasetKeys.next();          // "Sports facility"
+            JSONObject calcs = results.getJSONObject(dataset); // {"Trajectory count": {...}}
+            resultPages.add(new AbstractMap.SimpleEntry<>(dataset, renderDatasetBody(dataset, calcs)));
+        }
+    }
+
+    private CharSequence renderDatasetBody(String datasetName, JSONObject calcs) throws JSONException {
+        SpannableStringBuilder builder = new SpannableStringBuilder();
+
+        int titleStart = builder.length();
+
+        Iterator<String> calcKeys = calcs.keys();
+        while (calcKeys.hasNext()) {
+            String calc = calcKeys.next();
+            JSONObject values = calcs.getJSONObject(calc);
+
+            int headerStart = builder.length();
+            builder.append(calc).append("\n");
+            builder.setSpan(new StyleSpan(Typeface.BOLD), headerStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+            builder.setSpan(new RelativeSizeSpan(1.1f), headerStart, builder.length(), Spannable.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+            List<String> parts = new ArrayList<>();
+            Iterator<String> distanceKeys = values.keys();
+            while (distanceKeys.hasNext()) {
+                String distanceKey = distanceKeys.next();
+                if (distanceKey.equals("collapse")) continue;
+                parts.add(distanceKey + ": " + cleanValue(values.getString(distanceKey)));
+            }
+            builder.append(String.join(", ", parts)).append("\n\n");
+        }
+
+        // trim trailing blank line
+        while (builder.length() > 0 && builder.charAt(builder.length() - 1) == '\n') {
+            builder.delete(builder.length() - 1, builder.length());
+        }
+        return builder;
+    }
+
+    private void showCurrentPage() {
+        boolean hasPages = !resultPages.isEmpty();
+        tripDetailPrevBt.setEnabled(hasPages);
+        tripDetailNextBt.setEnabled(hasPages);
+
+        if (!hasPages) {
+            tripDetailDistanceTv.setText("No exposure data");
+            tripDetailPageIndicatorTv.setText("");
+            return;
+        }
+
+        Map.Entry<String, CharSequence> page = resultPages.get(currentPageIndex);
+        tripDetailDistanceTv.setText(page.getValue());
+        tripDetailPageIndicatorTv.setText(page.getKey());
+    }
+
     private void updateTripDetailBubble(TrajectorySegment clickedSegment) {
         if (clickedSegment != null) {
-            tripDetailIdTv.setText(String.format(Locale.getDefault(), "%s %d", getTripLabel(clickedSegment).trim(), clickedSegment.getId()));
-            tripDetailDistanceTv.setText(formatDistance(clickedSegment.getDistanceTraveled()));
+            tripDetailIdTv.setText("Loading…");
+            tripDetailDistanceTv.setText("");
             tripDetailBubble.setVisibility(View.VISIBLE);
+
+            pendingSegment = clickedSegment;
+            exposureFeatureInfoViewModel.getTimelineResults(clickedSegment.getStartTime(), clickedSegment.getEndTime());
         } else {
             tripDetailBubble.setVisibility(View.GONE);
         }
     }
 
-    private String getTripLabel(TrajectorySegment segment) {
-        int stringRes = segment.getTrip() == 0 ? R.string.trip_visit_label : R.string.trip_number_label;
-        return context.getString(stringRes, segment.getId());
-    }
+    private JSONObject findMatchingGroup(JSONArray groups, TrajectorySegment segment) throws JSONException {
+        int tripIndex = segment.getTrip();
+        for (int i = 0; i < groups.length(); i++) {
+            JSONObject group = groups.getJSONObject(i);
+            if (group.getInt("trip") != tripIndex) continue;
 
-    private String formatDistance(int meters) {
-        return meters >= 1000
-                ? String.format("%.1f km", meters / 1000.0)
-                : meters + " m";
-    }    
+            if (tripIndex == 0) {
+                Instant groupStart = Instant.parse(group.getString("lowerbound"));
+                Instant groupEnd = Instant.parse(group.getString("upperbound"));
+                Instant segmentStart = Instant.ofEpochMilli(segment.getStartTime());
+                Instant segmentEnd = Instant.ofEpochMilli(segment.getEndTime());
+                boolean overlaps = !groupEnd.isBefore(segmentStart) && !groupStart.isAfter(segmentEnd);
+                if (!overlaps) continue;
+            }
+            return group;
+        }
+        return null;
+    }
 
 
     private void configureDateSelection() {
@@ -247,5 +404,52 @@ public class BottomSheetManager {
         }
     }
 
+    private String formatTripKey(String key) {
+        if (key == null || key.isEmpty()) return key;
+        String withSpace = key.replace("-", " ");
+        return Character.toUpperCase(withSpace.charAt(0)) + withSpace.substring(1);
+    }
+
+    private String cleanValue(String rawValue) {
+        // Strips a trailing unit bracket like " [-]" or " [m]"
+        return rawValue.replaceAll("\\s*\\[.*?]\\s*$", "").trim();
+    }
+
+    private void showNextPage() {
+        if (resultPages.isEmpty()) return;
+        currentPageIndex = (currentPageIndex + 1) % resultPages.size();
+        showCurrentPage();
+    }
+
+    private void showPreviousPage() {
+        if (resultPages.isEmpty()) return;
+        currentPageIndex = (currentPageIndex - 1 + resultPages.size()) % resultPages.size();
+        showCurrentPage();
+    }
+
+    private boolean handleSwipeTouch(MotionEvent event) {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                swipeStartX = event.getX();
+                swipeStartY = event.getY();
+                tripDetailScroll.requestDisallowInterceptTouchEvent(true);
+                return true; // must consume DOWN or MOVE/UP never arrive
+
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_CANCEL:
+                float diffX = event.getX() - swipeStartX;
+                float diffY = event.getY() - swipeStartY;
+                if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > SWIPE_THRESHOLD) {
+                    if (diffX < 0) {
+                        showNextPage();
+                    } else {
+                        showPreviousPage();
+                    }
+                }
+                tripDetailScroll.requestDisallowInterceptTouchEvent(false);
+                return true;
+        }
+        return false;
+    }
 }
 

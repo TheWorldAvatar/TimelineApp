@@ -33,24 +33,33 @@
             android:padding="@dimen/component_margin">
 
             <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/inputDatasetLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:hint="Dataset">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/input_dataset"
+
+                <AutoCompleteTextView
+                    android:id="@+id/inputDataset"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/inputCalcTypeLayout"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:hint="Calculation type">
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/input_calc_type"
+                android:hint="Calculation Type">
+
+                <AutoCompleteTextView
+                    android:id="@+id/inputCalcType"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout

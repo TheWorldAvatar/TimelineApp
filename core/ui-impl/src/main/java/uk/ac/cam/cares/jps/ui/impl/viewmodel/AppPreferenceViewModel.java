@@ -10,6 +10,14 @@ import dagger.hilt.android.lifecycle.HiltViewModel;
 import uk.ac.cam.cares.jps.data.AppPreferenceRepository;
 import uk.ac.cam.cares.jps.utils.RepositoryCallback;
 
+import java.util.Collections;
+import java.util.List;
+import uk.ac.cam.cares.jps.data.ExposureDatasetRepository;
+import uk.ac.cam.cares.jps.model.ExposureDataset;
+
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+
 @HiltViewModel
 public class AppPreferenceViewModel extends ViewModel {
     private final AppPreferenceRepository appPreferenceRepository;
@@ -32,10 +40,18 @@ public class AppPreferenceViewModel extends ViewModel {
     private final MutableLiveData<String> _exposureCalcType = new MutableLiveData<>("");
     private final MutableLiveData<String> _exposureDistance = new MutableLiveData<>("");
 
+    private final ExposureDatasetRepository exposureDatasetRepository;
+
+    private final MutableLiveData<List<ExposureDataset>> _availableDatasets =
+        new MutableLiveData<>(Collections.emptyList());
+
+    private final Logger LOGGER = LogManager.getLogger(AppPreferenceViewModel.class);
 
     @Inject
-    public AppPreferenceViewModel(AppPreferenceRepository appPreferenceRepository) {
+    public AppPreferenceViewModel(AppPreferenceRepository appPreferenceRepository,
+                                ExposureDatasetRepository exposureDatasetRepository ) {
         this.appPreferenceRepository = appPreferenceRepository;
+        this.exposureDatasetRepository = exposureDatasetRepository;
     }
 
     public void loadAllPreferences() {
@@ -180,4 +196,22 @@ public class AppPreferenceViewModel extends ViewModel {
     public LiveData<String> getExposureDataset() { return _exposureDataset; }
     public LiveData<String> getExposureCalcType() { return _exposureCalcType; }
     public LiveData<String> getExposureDistance() { return _exposureDistance; }
+
+    public void loadAvailableDatasets() {
+        exposureDatasetRepository.getDatasets(new RepositoryCallback<>() {
+            @Override
+            public void onSuccess(List<ExposureDataset> result) {
+                _availableDatasets.postValue(result);
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                LOGGER.error("failed to load exposure datasets", error);
+            }
+        });
+    }
+
+    public LiveData<List<ExposureDataset>> getAvailableDatasets() {
+        return _availableDatasets;
+    }
 }
