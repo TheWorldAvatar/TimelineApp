@@ -256,6 +256,7 @@ public class BottomSheetManager {
         Iterator<String> calcKeys = calcs.keys();
         while (calcKeys.hasNext()) {
             String calc = calcKeys.next();
+            if (calc.equals("collapse")) continue;  
             JSONObject values = calcs.getJSONObject(calc);
 
             int headerStart = builder.length();
@@ -267,8 +268,9 @@ public class BottomSheetManager {
             Iterator<String> distanceKeys = values.keys();
             while (distanceKeys.hasNext()) {
                 String distanceKey = distanceKeys.next();
-                if (distanceKey.equals("collapse")) continue;
-                parts.add(distanceKey + ": " + cleanValue(values.getString(distanceKey)));
+                if (distanceKey.equals("collapse") || distanceKey.equals("display_order")) continue;
+                JSONObject byTimeRange = values.getJSONObject(distanceKey);
+                parts.add(distanceKey + ": " + cleanValue(extractValue(byTimeRange)));
             }
             builder.append(String.join(", ", parts)).append("\n\n");
         }
@@ -278,6 +280,16 @@ public class BottomSheetManager {
             builder.delete(builder.length() - 1, builder.length());
         }
         return builder;
+    }
+
+    private String extractValue(JSONObject byTimeRange) throws JSONException {
+        Iterator<String> keys = byTimeRange.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (key.equals("collapse")) continue;
+            return byTimeRange.getString(key);   // the time-range label itself, if you want it later, is `key`
+        }
+        return "";
     }
 
     private void showCurrentPage() {
@@ -406,6 +418,8 @@ public class BottomSheetManager {
 
     private String formatTripKey(String key) {
         if (key == null || key.isEmpty()) return key;
+        //remove number from stay, stay currently starts on 1 for whichever timeframe is queried
+        if (key.startsWith("stay")) return "Stay";
         String withSpace = key.replace("-", " ");
         return Character.toUpperCase(withSpace.charAt(0)) + withSpace.substring(1);
     }

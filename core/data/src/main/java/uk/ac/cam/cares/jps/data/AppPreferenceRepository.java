@@ -22,6 +22,7 @@ public class AppPreferenceRepository {
     private final String KEY_LOCATION_PERMISSION_PROMPTED = "location_permission_prompted";
     private final String KEY_TOOLTIPS_SKIP = "tooltip_skip";
     private final String KEY_EXPOSURE_DATASET = "exposure_dataset";
+    private final String KEY_EXPOSURE_DATASET_TABLE_NAME = "exposure_dataset_table_name";
     private final String KEY_EXPOSURE_CALC_TYPE = "exposure_calc_type";
     private final String KEY_EXPOSURE_DISTANCE = "exposure_distance";
 
@@ -118,6 +119,13 @@ public class AppPreferenceRepository {
     }
     public void setExposureDataset(String value) {
         setFieldInSharedPref(KEY_EXPOSURE_DATASET, value);
+    }
+    // AppPreferenceRepository — mirror setExposureDataset/getExposureDataset exactly, new key
+    public void setExposureDatasetTableName(String value) {
+        setFieldInSharedPref(KEY_EXPOSURE_DATASET_TABLE_NAME, value);
+    }
+    public void getExposureDatasetTableName(RepositoryCallback<String> callback) {
+        getFieldFromSharedPref(callback, KEY_EXPOSURE_DATASET_TABLE_NAME, String.class);
     }
 
     public void getExposureCalcType(RepositoryCallback<String> callback) {

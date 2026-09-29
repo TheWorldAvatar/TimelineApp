@@ -58,7 +58,7 @@ public class TripAgentViewModel extends ViewModel {
         tripAgentRepository.runTripAgent(lowerbound, upperbound, new RepositoryCallback<>() {
             @Override
             public void onSuccess(String result) {
-                exposureCalculationAgentRepository.triggerCalculation(deviceId, lowerbound, upperbound, new RepositoryCallback<>() {
+                exposureCalculationAgentRepository.triggerCalculation(lowerbound, upperbound, new RepositoryCallback<>() {
                     @Override
                     public void onSuccess(String exposureResult) {
                         _isRunning.postValue(false);

@@ -11,14 +11,11 @@ import com.android.volley.toolbox.StringRequest;
 import org.apache.log4j.Logger;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 
 import okhttp3.HttpUrl;
 
-/**
- * Network source for triggering exposure calculation on exposure-calculation-agent.
- * No auth header required — this agent authenticates via the stack's internal
- * federation endpoint, not per-request bearer tokens (see exposure-calculation-agent README).
- */
 public class ExposureCalculationAgentNetworkSource {
 
     private static final Logger LOGGER = Logger.getLogger(ExposureCalculationAgentNetworkSource.class);
@@ -31,22 +28,19 @@ public class ExposureCalculationAgentNetworkSource {
     }
 
     /**
-     * Trigger an exposure calculation for the given subject.
-     *
-     * @param subjectIri  IRI of the point time series, same subject passed to trip-agent
+     * @param accessToken bearer token for exposure-calculation-agent
      * @param rdfType     IRI of the calculation type, e.g. .../ontoexposure/TrajectoryCount
      * @param distance    buffer distance in metres
-     * @param exposureTable table name of exposure dataset, uploaded via stack data uploader
+     * @param datasetIri  IRI of the exposure dataset (from ExposureFeatureInfoAgent's dataset list)
      */
-    public void triggerCalculation(String subjectIri, String rdfType, String distance, String exposureTable,
+    public void triggerCalculation(String accessToken, String rdfType, String distance, String datasetIri,
                                     Long lowerbound, Long upperbound,
                                     Response.Listener<String> onSuccess, Response.ErrorListener onFailure) {
         HttpUrl.Builder urlBuilder = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
                 .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.exposurecalculationagent_triggerCalculation))
                 .addQueryParameter("rdf_type", rdfType)
                 .addQueryParameter("distance", distance)
-                .addQueryParameter("subject", subjectIri)
-                .addQueryParameter("exposure_table", exposureTable);
+                .addQueryParameter("dataset_iri", datasetIri);
 
         if (lowerbound != null) {
             urlBuilder.addQueryParameter("lowerbound", Instant.ofEpochMilli(lowerbound).toString());
@@ -61,8 +55,15 @@ public class ExposureCalculationAgentNetworkSource {
         StringRequest request = new StringRequest(Request.Method.POST, uri, onSuccess, error -> {
             LOGGER.error("exposure-calculation-agent call failed", error);
             onFailure.onErrorResponse(error);
-        });
-        request.setRetryPolicy(new DefaultRetryPolicy(10000, 2, DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+        }) {
+            @Override
+            public Map<String, String> getHeaders() {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Authorization", "Bearer " + accessToken);
+                return headers;
+            }
+        };
+        request.setRetryPolicy(new DefaultRetryPolicy(1000000, 2, DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
         requestQueue.add(request);
     }
 }

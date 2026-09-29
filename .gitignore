@@ -35,3 +35,4 @@ local.properties
 
 *.png
 core/utils/src/main/res/values/developer_config.xml
+core/utils/src/main/res/values/developer_config.xml

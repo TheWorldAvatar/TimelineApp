@@ -6,6 +6,7 @@ import com.android.volley.AuthFailureError;
 import com.android.volley.Request;
 import com.android.volley.RequestQueue;
 import com.android.volley.Response;
+import com.android.volley.VolleyError;
 import com.android.volley.toolbox.StringRequest;
 
 import org.apache.log4j.Logger;
@@ -36,60 +37,47 @@ public class BlazegraphNetworkSource {
     public void getDatasets(Response.Listener<List<ExposureDataset>> onSuccess,
                             Response.ErrorListener onFailure) {
 
-        String sparql =
-                "PREFIX dcterms: <http://purl.org/dc/terms/>\n" +
-                "PREFIX dcat: <http://www.w3.org/ns/dcat#>\n" +
-                "SELECT DISTINCT ?table_name WHERE {\n" +
-                "  ?dataset a dcat:Dataset ;\n" +
-                "           dcterms:title ?table_name .\n" +
-                "} ORDER BY ?table_name";
+        String url = HttpUrl.get(
+                context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)
+        )
+        .newBuilder()
+        .addPathSegments(
+                context.getString(uk.ac.cam.cares.jps.utils.R.string.blazegraph_sparql_path)
+        )
+        .build()
+        .toString();
 
-        String url = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port))
-                .newBuilder()
-                .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.blazegraph_sparql_path))
-                .build().toString();
+        StringRequest request = new StringRequest(
+                Request.Method.GET,
+                url,
+                response -> {
+                    try {
+                        JSONArray jsonArray = new JSONArray(response);
 
-        StringRequest request = new StringRequest(Request.Method.POST, url, s -> {
-            try {
-                JSONArray bindings = new JSONObject(s)
-                        .getJSONObject("results")
-                        .getJSONArray("bindings");
+                        List<ExposureDataset> datasets = new ArrayList<>();
 
-                List<ExposureDataset> datasets = new ArrayList<>();
-                for (int i = 0; i < bindings.length(); i++) {
-                    String tableName = bindings.getJSONObject(i)
-                            .getJSONObject("table_name")
-                            .getString("value");
-                    datasets.add(new ExposureDataset(tableName, tableName));
-                }
-                onSuccess.onResponse(datasets);
-            } catch (JSONException e) {
-                throw new RuntimeException(e);
-            }
-        }, onFailure) {
+                        for (int i = 0; i < jsonArray.length(); i++) {
+                            JSONObject dataset = jsonArray.getJSONObject(i);
 
-            @Override
-            public Map<String, String> getHeaders() {
-                Map<String, String> headers = new HashMap<>();
-                headers.put("Accept", "application/sparql-results+json");
-                return headers;
-            }
+                            String label = dataset.getString("label");
+                            String tableName = dataset.getString("table_name");
 
-            @Override
-            public byte[] getBody() throws AuthFailureError {
-                try {
-                    return ("query=" + URLEncoder.encode(sparql, "UTF-8")).getBytes("UTF-8");
-                } catch (UnsupportedEncodingException e) {
-                    throw new RuntimeException(e);
-                }
-            }
+                            datasets.add(new ExposureDataset(label, tableName));;
+                        }
 
-            @Override
-            public String getBodyContentType() {
-                return "application/x-www-form-urlencoded; charset=UTF-8";
-            }
-        };
+                        onSuccess.onResponse(datasets);
+
+                    } catch (JSONException e) {
+                        LOGGER.error("Failed to parse dataset response", e);
+                        onFailure.onErrorResponse(
+                                new VolleyError("Failed to parse dataset response", e)
+                        );
+                    }
+                },
+                onFailure
+        );
 
         requestQueue.add(request);
     }
+
 }

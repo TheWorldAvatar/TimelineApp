@@ -15,8 +15,8 @@ import dagger.hilt.android.AndroidEntryPoint;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.AppPreferenceViewModel;
 import uk.ac.cam.cares.jps.user.databinding.FragmentExposureSettingBinding;
 import android.widget.ArrayAdapter;
-import java.util.List;  
-import uk.ac.cam.cares.jps.model.ExposureDataset; 
+import java.util.List;
+import uk.ac.cam.cares.jps.model.ExposureDataset;
 
 @AndroidEntryPoint
 public class ExposureSettingFragment extends Fragment {
@@ -24,12 +24,33 @@ public class ExposureSettingFragment extends Fragment {
     private FragmentExposureSettingBinding binding;
     private AppPreferenceViewModel appPreferenceViewModel;
     private ExposureDataset selectedDataset;
+    private CalcType selectedCalcType;
 
-    private static final String[] CALC_TYPE_OPTIONS = {
-            "TrajectoryCount",
-            "TrajectoryArea",
-            "TrajectoryAreaWeightedSum"
-    };
+    private enum CalcType {
+        TRAJECTORY_COUNT("Trajectory Count", "TrajectoryCount"),
+        TRAJECTORY_AREA("Trajectory Area", "TrajectoryArea"),
+        TRAJECTORY_AREA_WEIGHTED_SUM("Trajectory Area Weighted Sum", "TrajectoryAreaWeightedSum");
+
+        private final String label;
+        private final String value;
+
+        CalcType(String label, String value) {
+            this.label = label;
+            this.value = value;
+        }
+
+        String getValue() { return value; }
+
+        static CalcType fromValue(String value) {
+            for (CalcType c : values()) {
+                if (c.value.equals(value)) return c;
+            }
+            return null;
+        }
+
+        @Override
+        public String toString() { return label; } // shown in the dropdown
+    }
 
     @Nullable
     @Override
@@ -47,12 +68,10 @@ public class ExposureSettingFragment extends Fragment {
             ArrayAdapter<ExposureDataset> adapter = new ArrayAdapter<>(
                     requireContext(), android.R.layout.simple_list_item_1, datasets);
             binding.inputDataset.setAdapter(adapter);
-            // if a dataset was already saved, resolve it against the loaded list so the
-            // field shows the label rather than the raw table name before this fires
             String saved = appPreferenceViewModel.getExposureDataset().getValue();
             if (saved != null && !saved.isEmpty()) {
                 for (ExposureDataset d : datasets) {
-                    if (d.getId().equals(saved)) {
+                    if (d.getIri().equals(saved)) {
                         selectedDataset = d;
                         binding.inputDataset.setText(d.getLabel(), false);
                         break;
@@ -61,19 +80,19 @@ public class ExposureSettingFragment extends Fragment {
             }
         });
 
-        // ADD — track user's live selection from the dropdown
         binding.inputDataset.setOnItemClickListener((parent, v, position, id) ->
                 selectedDataset = (ExposureDataset) parent.getItemAtPosition(position));
 
-
-        ArrayAdapter<String> calcTypeAdapter = new ArrayAdapter<>(
+        ArrayAdapter<CalcType> calcTypeAdapter = new ArrayAdapter<>(
                 requireContext(),
                 android.R.layout.simple_list_item_1,
-                CALC_TYPE_OPTIONS
+                CalcType.values()
         );
         binding.inputCalcType.setAdapter(calcTypeAdapter);
 
-        // Pre-fill fields with whatever was saved before
+        binding.inputCalcType.setOnItemClickListener((parent, v, position, id) ->
+                selectedCalcType = (CalcType) parent.getItemAtPosition(position));
+
         appPreferenceViewModel.getExposureDataset().observe(getViewLifecycleOwner(), v -> {
             if (v != null && !v.isEmpty() && binding.inputDataset.getText().toString().isEmpty()) {
                 binding.inputDataset.setText(v);
@@ -81,7 +100,13 @@ public class ExposureSettingFragment extends Fragment {
         });
         appPreferenceViewModel.getExposureCalcType().observe(getViewLifecycleOwner(), v -> {
             if (v != null && !v.isEmpty() && binding.inputCalcType.getText().toString().isEmpty()) {
-                binding.inputCalcType.setText(v, false); // false = don't filter adapter
+                CalcType c = CalcType.fromValue(v);
+                if (c != null) {
+                    selectedCalcType = c;
+                    binding.inputCalcType.setText(c.toString(), false); // shows "Trajectory Count"
+                } else {
+                    binding.inputCalcType.setText(v, false); // fallback, shouldn't normally happen
+                }
             }
         });
         appPreferenceViewModel.getExposureDistance().observe(getViewLifecycleOwner(), v -> {
@@ -96,12 +121,37 @@ public class ExposureSettingFragment extends Fragment {
                 requireActivity().getOnBackPressedDispatcher().onBackPressed());
 
         binding.btnSave.setOnClickListener(v -> {
-            String datasetValue = selectedDataset != null
-                    ? selectedDataset.getId()
-                    : binding.inputDataset.getText().toString();
-            appPreferenceViewModel.setExposureDataset(datasetValue);
-            appPreferenceViewModel.setExposureCalcType(binding.inputCalcType.getText().toString());
-            appPreferenceViewModel.setExposureDistance(binding.inputDistance.getText().toString());
+            if (selectedDataset == null) {
+                binding.inputDatasetLayout.setError("Please select a dataset from the list");
+                Toast.makeText(requireContext(), "Please select a dataset from the list", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            binding.inputDatasetLayout.setError(null);
+
+            String distanceText = binding.inputDistance.getText().toString().trim();
+            double distanceValue;
+            try {
+                distanceValue = Double.parseDouble(distanceText);
+            } catch (NumberFormatException e) {
+                binding.inputDistanceLayout.setError("Enter a valid distance");
+                Toast.makeText(requireContext(), "Enter a valid distance", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (distanceValue <= 0) {
+                binding.inputDistanceLayout.setError("Distance must be greater than 0");
+                Toast.makeText(requireContext(), "Distance must be greater than 0", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            binding.inputDistanceLayout.setError(null);
+
+            String calcTypeValue = selectedCalcType != null
+                    ? selectedCalcType.getValue()
+                    : binding.inputCalcType.getText().toString();
+
+            appPreferenceViewModel.setExposureDataset(selectedDataset.getIri());
+            appPreferenceViewModel.setExposureDatasetTableName(selectedDataset.getDerivedTableName());
+            appPreferenceViewModel.setExposureCalcType(calcTypeValue);
+            appPreferenceViewModel.setExposureDistance(distanceText);
             Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show();
         });
     }

@@ -12,13 +12,12 @@ import dagger.hilt.InstallIn;
 import dagger.hilt.android.qualifiers.ApplicationContext;
 import dagger.hilt.components.SingletonComponent;
 import uk.ac.cam.cares.jps.network.DatesWithTrajectoryNetworkSource;
-import uk.ac.cam.cares.jps.network.HawkerCentreNetworkSource;
+import uk.ac.cam.cares.jps.network.DatasetLayerNetworkSource;
 import uk.ac.cam.cares.jps.network.TrajectoryNetworkSource;
 import uk.ac.cam.cares.jps.network.TripAgentNetworkSource;
 
 import uk.ac.cam.cares.jps.network.ExposureCalculationAgentNetworkSource;
 import uk.ac.cam.cares.jps.network.ExposureFeatureInfoNetworkSource;
-import uk.ac.cam.cares.jps.network.BlazegraphNetworkSource;
 
 @Module
 @InstallIn(SingletonComponent.class)
@@ -37,8 +36,8 @@ public class NetworkModule {
 
     @Provides
     @Singleton
-    public HawkerCentreNetworkSource provideHawkerCentreNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
-        return new HawkerCentreNetworkSource(requestQueue, context);
+    public DatasetLayerNetworkSource provideDatasetLayerNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
+        return new DatasetLayerNetworkSource(requestQueue, context);
     }
 
     @Provides
@@ -56,12 +55,6 @@ public class NetworkModule {
     @Provides @Singleton
     public ExposureFeatureInfoNetworkSource provideExposureFeatureInfoNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
         return new ExposureFeatureInfoNetworkSource(requestQueue, context);
-    }
-
-    @Provides
-    @Singleton
-    public BlazegraphNetworkSource provideBlazegraphNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
-        return new BlazegraphNetworkSource(requestQueue, context);
     }
 
 }

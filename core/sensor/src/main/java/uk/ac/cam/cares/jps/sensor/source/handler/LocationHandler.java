@@ -56,6 +56,11 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
     private Logger LOGGER = Logger.getLogger(LocationHandler.class);
     private boolean isRunning = false;
     private final Object sensorDataLock = new Object(); // Lock object for synchronization
+    private int noLocationTickCount = 0;
+
+    // === guards the first recorded point against a stale cached fix ===
+    private volatile boolean hasRecordedFirstPoint = false;
+    private static final long MAX_FIRST_FIX_AGE_MS = 5000;
 
     private Location latestLocation;
     private FusedLocationProviderClient fusedLocationClient;
@@ -81,11 +86,28 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
                     }
 
                     if (location != null) {
-                        recordLocation(location);
+
+                        long fixAgeMs = System.currentTimeMillis() - location.getTime();
+                        boolean okToRecord = hasRecordedFirstPoint || fixAgeMs <= MAX_FIRST_FIX_AGE_MS;
+
+                        if (okToRecord) {
+                            noLocationTickCount = 0;
+                            hasRecordedFirstPoint = true;
+                            recordLocation(location);
+                        } else {
+                            LOGGER.warn(
+                                    "LOCATION: discarding stale fix for first point, age=" + fixAgeMs + "ms"
+                            );
+                            noLocationTickCount++;
+                        }
+
                     } else {
                         LOGGER.warn(
-                                "LOCATION: no location available to record"
+                                "LOCATION: no location available to record (waited "
+                                        + (noLocationTickCount * 2)
+                                        + "s)"
                         );
+                        noLocationTickCount++;
                     }
 
                     locationRecordHandler.postDelayed(
@@ -130,7 +152,7 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
         CurrentLocationRequest request =
                 new CurrentLocationRequest.Builder()
                         .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-                        .setMaxUpdateAgeMillis(0)
+                        .setMaxUpdateAgeMillis(30_000)
                         .setDurationMillis(30_000)
                         .build();
 
@@ -165,7 +187,7 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
                 latestLocation = location;
             }
 
-            locationRecordHandler.post(locationRecordRunnable);
+            //locationRecordHandler.post(locationRecordRunnable);
 
         }).addOnFailureListener(e -> {
 
@@ -259,6 +281,11 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
 
         LOGGER.info("LOCATION: startLocationUpdates() called");
 
+        if (isRunning) {
+            LOGGER.info("LOCATION: already running — ignoring duplicate start (likely a resumed session)");
+            return;
+        }
+
         if (ActivityCompat.checkSelfPermission(
                 context,
                 Manifest.permission.ACCESS_FINE_LOCATION
@@ -273,14 +300,23 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
         }
 
         isRunning = true;
+        noLocationTickCount = 0;
+        hasRecordedFirstPoint = false;
 
         LOGGER.info("LOCATION: handler is now running");
 
+        // ==== FUSED LOCATION PROVIDER ==== disabled for testing of GPS provider
         // Ask Google Fused Location for a fresh location.
         requestCurrentLocation();
 
         // Keep receiving location updates afterwards.
         startFusedLocationUpdates();
+
+        locationRecordHandler.post(locationRecordRunnable);
+        
+        // ==== RAW GPS_PROVIDER (upstream approach) — active ====
+        //locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000, 0, this);
+
 
         if (pressureSensor != null) {
             sensorManager.registerListener(
@@ -299,6 +335,7 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
     public void stop() {
         isRunning = false;
 
+        
         locationManager.removeUpdates(this);
         sensorManager.unregisterListener(this);
 
@@ -312,7 +349,7 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
         synchronized (sensorDataLock) {
             latestLocation = null;
         }
-
+        
         LOGGER.info("LOCATION: handler stopped");
     }
 
@@ -343,9 +380,15 @@ public class LocationHandler implements LocationListener, SensorHandler, SensorE
             return;
         }
 
+
+        // ==== RAW GPS_PROVIDER (upstream approach) — record immediately, no polling loop needed ====
+        //recordLocation(location);
+
         synchronized (sensorDataLock) {
             latestLocation = location;
         }
+        
+
 
         LOGGER.info(
                 "LOCATION: new location update:"

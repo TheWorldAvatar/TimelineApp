@@ -39,6 +39,8 @@ public class AppPreferenceViewModel extends ViewModel {
     private final MutableLiveData<String> _exposureDataset = new MutableLiveData<>("");
     private final MutableLiveData<String> _exposureCalcType = new MutableLiveData<>("");
     private final MutableLiveData<String> _exposureDistance = new MutableLiveData<>("");
+    private final MutableLiveData<String> _exposureDatasetTableName = new MutableLiveData<>("");
+
 
     private final ExposureDatasetRepository exposureDatasetRepository;
 
@@ -170,6 +172,10 @@ public class AppPreferenceViewModel extends ViewModel {
             public void onSuccess(String result) { _exposureDataset.postValue(result); }
             public void onFailure(Throwable error) { _accountError.postValue("Account error."); }
         });
+        appPreferenceRepository.getExposureDatasetTableName(new RepositoryCallback<>() {
+            public void onSuccess(String result) { _exposureDatasetTableName.postValue(result); }
+            public void onFailure(Throwable error) { _accountError.postValue("Account error."); }
+        });
         appPreferenceRepository.getExposureCalcType(new RepositoryCallback<>() {
             public void onSuccess(String result) { _exposureCalcType.postValue(result); }
             public void onFailure(Throwable error) { _accountError.postValue("Account error."); }
@@ -210,6 +216,11 @@ public class AppPreferenceViewModel extends ViewModel {
             }
         });
     }
+    public void setExposureDatasetTableName(String value) {
+        _exposureDatasetTableName.setValue(value);
+        appPreferenceRepository.setExposureDatasetTableName(value);
+    }
+    public LiveData<String> getExposureDatasetTableName() { return _exposureDatasetTableName; }
 
     public LiveData<List<ExposureDataset>> getAvailableDatasets() {
         return _availableDatasets;

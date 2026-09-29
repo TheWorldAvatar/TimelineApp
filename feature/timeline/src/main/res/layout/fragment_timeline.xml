@@ -241,12 +241,12 @@
         app:layout_anchorGravity="top|end" />
 
     <com.google.android.material.button.MaterialButton
-        android:id="@+id/hawker_centre_button"
+        android:id="@+id/dataset_layer_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="16dp"
         android:translationY="-40dp"
-        android:text="@string/hawker_centre"
+        android:text="@string/show_dataset_layer"
         app:backgroundTint="@color/fab_idle"
         android:textColor="@android:color/white"
         app:cornerRadius="4dp"
