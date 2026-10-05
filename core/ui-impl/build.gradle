@@ -11,4 +11,5 @@ dependencies {
     implementation project(path: ':core:data')
     implementation project(path: ':core:utils')
     implementation project(path: ':core:ui-base')
+    implementation project(path: ':core:model')
 }

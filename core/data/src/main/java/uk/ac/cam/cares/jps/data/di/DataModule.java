@@ -15,11 +15,19 @@ import uk.ac.cam.cares.jps.data.TrajectoryRepository;
 import uk.ac.cam.cares.jps.login.LoginRepository;
 import uk.ac.cam.cares.jps.network.DatesWithTrajectoryNetworkSource;
 import uk.ac.cam.cares.jps.network.TrajectoryNetworkSource;
-import uk.ac.cam.cares.jps.data.HawkerCentreRepository;
-import uk.ac.cam.cares.jps.network.HawkerCentreNetworkSource;
+import uk.ac.cam.cares.jps.data.DatasetLayerRepository;
+import uk.ac.cam.cares.jps.network.DatasetLayerNetworkSource;
 
 import uk.ac.cam.cares.jps.data.TripAgentRepository;
 import uk.ac.cam.cares.jps.network.TripAgentNetworkSource;
+
+import uk.ac.cam.cares.jps.data.ExposureCalculationAgentRepository;
+import uk.ac.cam.cares.jps.network.ExposureCalculationAgentNetworkSource;
+
+import uk.ac.cam.cares.jps.data.ExposureFeatureInfoRepository;
+import uk.ac.cam.cares.jps.network.ExposureFeatureInfoNetworkSource;
+
+import uk.ac.cam.cares.jps.data.ExposureDatasetRepository;           
 
 /**
  * Dependency injection specification for data module
@@ -52,9 +60,9 @@ public class DataModule {
 
     @Provides
     @Singleton
-    public HawkerCentreRepository provideHawkerCentreRepository(HawkerCentreNetworkSource hawkerCentreNetworkSource,
+    public DatasetLayerRepository provideDatasetLayerRepository(DatasetLayerNetworkSource datasetLayerNetworkSource,
                                                                 LoginRepository loginRepository) {
-        return new HawkerCentreRepository(hawkerCentreNetworkSource, loginRepository);
+        return new DatasetLayerRepository(datasetLayerNetworkSource, loginRepository);
     }
 
     @Provides
@@ -63,5 +71,27 @@ public class DataModule {
                                                             LoginRepository loginRepository,
                                                             @ApplicationContext Context context) {
         return new TripAgentRepository(tripAgentNetworkSource, loginRepository, context);
+    }
+
+    @Provides
+    @Singleton
+    public ExposureCalculationAgentRepository provideExposureCalculationAgentRepository(
+            ExposureCalculationAgentNetworkSource exposureCalculationAgentNetworkSource,
+            AppPreferenceRepository appPreferenceRepository,
+            LoginRepository loginRepository) {
+        return new ExposureCalculationAgentRepository(exposureCalculationAgentNetworkSource, appPreferenceRepository, loginRepository);
+    }
+
+    @Provides @Singleton
+    public ExposureFeatureInfoRepository provideExposureFeatureInfoRepository(
+            ExposureFeatureInfoNetworkSource networkSource, LoginRepository loginRepository) {
+        return new ExposureFeatureInfoRepository(networkSource, loginRepository);
+    }
+
+    @Provides
+    @Singleton
+    public ExposureDatasetRepository provideExposureDatasetRepository(ExposureFeatureInfoNetworkSource networkSource,
+                                                                        LoginRepository loginRepository) {
+        return new ExposureDatasetRepository(networkSource, loginRepository);
     }
 }

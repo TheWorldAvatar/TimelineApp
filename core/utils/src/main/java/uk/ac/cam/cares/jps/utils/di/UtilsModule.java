@@ -36,6 +36,4 @@ public class UtilsModule {
         return data.getBytes(StandardCharsets.UTF_8);
     }
 
-
-
 }

@@ -12,6 +12,7 @@ import androidx.work.WorkerParameters;
 
 import org.apache.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -22,6 +23,7 @@ import dagger.assisted.AssistedInject;
 import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
 import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
 import uk.ac.cam.cares.jps.sensor.source.network.SensorNetworkSource;
+import uk.ac.cam.cares.jps.login.LoginRepository;
 
 @HiltWorker
 public class UnsentDataUploadWorker extends Worker {
@@ -31,13 +33,17 @@ public class UnsentDataUploadWorker extends Worker {
 
     private final String taskId;
 
+    private final LoginRepository loginRepository;
+
     @AssistedInject
     public UnsentDataUploadWorker(@Assisted @NonNull Context context, @Assisted @NonNull WorkerParameters workerParams,
                                 SensorLocalSource sensorLocalSource,
-                                SensorNetworkSource sensorNetworkSource) {
+                                SensorNetworkSource sensorNetworkSource,
+                                LoginRepository loginRepository) {
         super(context, workerParams);
         this.sensorLocalSource = sensorLocalSource;
         this.sensorNetworkSource = sensorNetworkSource;
+        this.loginRepository = loginRepository;
         this.taskId = workerParams.getInputData().getString("taskId");
     }
 
@@ -53,7 +59,7 @@ public class UnsentDataUploadWorker extends Worker {
         }
     }
 
-    private void uploadUnsentData() {
+    private void uploadUnsentData() throws IOException {
         int limit = 100;
 
         while (true) {
@@ -76,8 +82,9 @@ public class UnsentDataUploadWorker extends Worker {
 
                 try {
                     byte[] compressedData = compressData(payload);
+                    String accessToken = fetchAccessTokenBlocking();
                     // We now know, on this line, whether the server actually got it.
-                    boolean success = sensorNetworkSource.sendPostRequestSync(deviceId, taskId, compressedData, payload);
+                    boolean success = sensorNetworkSource.sendPostRequestSync(deviceId, taskId, compressedData, payload, accessToken);
 
                     if (success) {
                         // Only delete once delivery is confirmed.
@@ -117,5 +124,39 @@ public class UnsentDataUploadWorker extends Worker {
             combined.append(data.data, 1, data.data.length() - 1); // strip stored [ ]
         }
         return "[" + combined + "]";
+    }
+
+    private String fetchAccessTokenBlocking() throws IOException {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<String> tokenRef = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+        loginRepository.getAccessToken(new uk.ac.cam.cares.jps.utils.RepositoryCallback<String>() {
+            @Override
+            public void onSuccess(String token) {
+                tokenRef.set(token);
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                errorRef.set(error);
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while waiting for access token", e);
+        }
+
+        if (errorRef.get() != null) {
+            throw new IOException("Failed to fetch access token", errorRef.get());
+        }
+
+        LOGGER.info("Using access token ending in: " + tokenRef.get().substring(Math.max(0, tokenRef.get().length() - 10)));
+        return tokenRef.get();
     }
 }

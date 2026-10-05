@@ -171,7 +171,7 @@ public class TrajectoryManager {
                             Feature feature = clickedFeature.getFeature();
 
                             Integer segmentId = feature.hasProperty("id") ? feature.getNumberProperty("id").intValue() : null;
-                            String sessionId = feature.hasProperty("trip") ? feature.getStringProperty("trip") : null;
+                            String sessionId = feature.hasProperty("session_id") ? feature.getStringProperty("session_id") : null;
 
                             if (segmentId != null && sessionId != null) {
                                 trajectoryViewModel.setClickedSegment(segmentId, sessionId);

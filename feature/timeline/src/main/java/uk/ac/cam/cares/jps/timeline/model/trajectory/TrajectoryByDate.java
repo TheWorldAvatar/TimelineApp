@@ -96,7 +96,7 @@ public class TrajectoryByDate {
                     parsedSessionIds.add(sessionId);
                     sessionTitleNumber++;
                     numberInSession = 0;
-                    String sessionTitle = "Trip " + sessionTitleNumber;
+                    String sessionTitle = "Session " + sessionTitleNumber;
                     for (int j = i; j < features.length(); j++) {
 
                         JSONObject feature2 = features.getJSONObject(j);

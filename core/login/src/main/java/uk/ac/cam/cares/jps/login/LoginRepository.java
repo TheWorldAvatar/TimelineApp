@@ -133,4 +133,9 @@ public class LoginRepository {
                     NavHostFragment.findNavController(fragment).navigate(request);
                 });
     }
+
+    public void invalidateAccessToken() {
+        LOGGER.info("Invalidating cached access token after server rejection");
+        loginSource.forceTokenRefresh();
+    }
 }

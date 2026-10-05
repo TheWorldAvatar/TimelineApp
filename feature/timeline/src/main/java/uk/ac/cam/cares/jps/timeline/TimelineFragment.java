@@ -57,7 +57,7 @@ import uk.ac.cam.cares.jps.ui.impl.tooltip.TooltipSequence;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.AppPreferenceViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.TooltipTriggerViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.UserAccountViewModel;
-import uk.ac.cam.cares.jps.timeline.ui.manager.HawkerCentreManager;
+import uk.ac.cam.cares.jps.timeline.ui.manager.DatasetLayerManager;
 
 
 @AndroidEntryPoint
@@ -79,7 +79,7 @@ public class TimelineFragment extends Fragment {
     private UserAccountViewModel accountViewModel;
     private PermissionHelper permissionHelper;
 
-    private HawkerCentreManager hawkerCentreManager;
+    private DatasetLayerManager datasetLayerManager;
 
     @Nullable
     @Override
@@ -111,8 +111,10 @@ public class TimelineFragment extends Fragment {
         new TrajectoryManager(this, mapView);
         new BottomSheetManager(this, binding.bottomSheetContainer);
 
-        hawkerCentreManager = new HawkerCentreManager(this, mapView);
-        binding.hawkerCentreButton.setOnClickListener(v -> hawkerCentreManager.toggleHawkerCentres());
+        datasetLayerManager = new DatasetLayerManager(this, mapView);
+        binding.datasetLayerButton.setOnClickListener(v -> datasetLayerManager.toggleDatasetLayer());
+
+        setupTripDetailScroll();
 
         compassPlugin = mapView.getPlugin(Plugin.MAPBOX_COMPASS_PLUGIN_ID);
         if (compassPlugin != null) {
@@ -310,4 +312,11 @@ public class TimelineFragment extends Fragment {
         recordingStateViewModel.startRecording();
         Toast.makeText(requireContext(), "Auto-start on", Toast.LENGTH_SHORT).show();
     }
+    
+    private void setupTripDetailScroll() {
+    binding.tripDetailScroll.setOnTouchListener((v, event) -> {
+        v.getParent().requestDisallowInterceptTouchEvent(true);
+        return false;
+    });
+}
 }
