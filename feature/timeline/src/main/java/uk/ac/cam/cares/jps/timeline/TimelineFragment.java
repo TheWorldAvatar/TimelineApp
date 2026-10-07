@@ -51,6 +51,9 @@ import uk.ac.cam.cares.jps.sensor.source.handler.SensorType;
 import uk.ac.cam.cares.jps.sensor.ui.RecordingViewModel;
 import uk.ac.cam.cares.jps.timeline.ui.manager.BottomSheetManager;
 import uk.ac.cam.cares.jps.timeline.ui.manager.TrajectoryManager;
+import uk.ac.cam.cares.jps.timeline.ui.manager.RouteManager;
+import uk.ac.cam.cares.jps.timeline.ui.manager.RoutePanelManager;
+import uk.ac.cam.cares.jps.timeline.viewmodel.RoutesViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 import uk.ac.cam.cares.jps.timelinemap.databinding.FragmentTimelineBinding;
 import uk.ac.cam.cares.jps.ui.impl.tooltip.TooltipSequence;
@@ -81,6 +84,9 @@ public class TimelineFragment extends Fragment {
 
     private DatasetLayerManager datasetLayerManager;
 
+    private RoutesViewModel routesViewModel;
+    private TrajectoryManager trajectoryManager;
+
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
@@ -100,6 +106,7 @@ public class TimelineFragment extends Fragment {
         recordingStateViewModel = new ViewModelProvider(this).get(RecordingViewModel.class);
         tooltipTriggerViewModel = new ViewModelProvider(requireActivity()).get(TooltipTriggerViewModel.class);
         accountViewModel = new ViewModelProvider(this).get(UserAccountViewModel.class);
+        routesViewModel = new ViewModelProvider(requireActivity()).get(RoutesViewModel.class);
 
         permissionHelper = new PermissionHelper(this);
 
@@ -108,8 +115,12 @@ public class TimelineFragment extends Fragment {
         setupRecordingButton();
         updateUIForThemeMode(isDarkModeEnabled());
 
-        new TrajectoryManager(this, mapView);
+        trajectoryManager = new TrajectoryManager(this, mapView);
         new BottomSheetManager(this, binding.bottomSheetContainer);
+
+        new RouteManager(this, mapView);
+        new RoutePanelManager(this, mapView);
+        observeMode();
 
         datasetLayerManager = new DatasetLayerManager(this, mapView);
         binding.datasetLayerButton.setOnClickListener(v -> datasetLayerManager.toggleDatasetLayer());
@@ -311,6 +322,37 @@ public class TimelineFragment extends Fragment {
         recordingStateViewModel.toggleAllSensors(true);
         recordingStateViewModel.startRecording();
         Toast.makeText(requireContext(), "Auto-start on", Toast.LENGTH_SHORT).show();
+    }
+
+    // ADD. The Recording | Routes selector now lives in the profile dialog (UserDialogFragment),
+    // so this fragment only has to REACT to the mode.
+    private void observeMode() {
+        routesViewModel.mode.observe(getViewLifecycleOwner(), this::applyMode);
+    }
+
+    /**
+     * Shows the widgets of the current mode and hides the other mode's widgets.
+     * Recording mode = everything the screen showed before this feature. Route mode = route panel instead.
+     */
+    private void applyMode(RoutesViewModel.MapMode mode) {
+        boolean routeMode = mode == RoutesViewModel.MapMode.ROUTE_SELECTION;
+
+        binding.routePanel.setVisibility(routeMode ? View.VISIBLE : View.GONE);
+
+        // The recording-mode widgets.
+        int recordingVisibility = routeMode ? View.GONE : View.VISIBLE;
+        binding.bottomSheetContainer.setVisibility(recordingVisibility);
+        binding.recordingFab.setVisibility(recordingVisibility);
+        binding.legendCard.setVisibility(recordingVisibility);
+        binding.runTripAgentButton.setVisibility(recordingVisibility);
+        binding.datasetLayerButton.setVisibility(recordingVisibility);
+        if (routeMode) {
+            // Hidden only. In recording mode it stays hidden until a trip is selected, as before.
+            binding.tripDetailBubble.setVisibility(View.GONE);
+        }
+
+        // Keep the recorded trajectories off the map while choosing a route.
+        trajectoryManager.setTrajectoryVisible(!routeMode);
     }
     
     private void setupTripDetailScroll() {

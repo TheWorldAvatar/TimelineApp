@@ -16,7 +16,20 @@
     <string name="close">Close</string>
     <string name="trip_visit_label">Visit</string>
     <string name="trip_number_label">Trip</string>
-    <string name="run_trip_agent">Run trip agent</string>
+    <string name="run_trip_agent">Run Calculation</string>
     <string name="previous">Previous</string>
     <string name="next">Next</string>
+    
+    <!-- ADD: label shown above the toggle in the profile dialog -->
+    <string name="map_mode_label">Map mode</string>
+
+    <!-- CHANGE: NEW strings for route selection mode -->
+    <string name="mode_recording">Recording</string>
+    <string name="mode_routes">Routes</string>
+    <string name="route_start_hint">Start: type an address or tap the map</string>
+    <string name="route_end_hint">End: type an address or tap the map</string>
+    <string name="find_routes">Find routes</string>
+    <string name="route_mode_driving">Driving</string>
+    <string name="route_mode_cycling">Cycling</string>
+    <string name="route_mode_walking">Walking</string>
 </resources>

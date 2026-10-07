@@ -64,20 +64,17 @@ public class ExposureSettingFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
+        // Datasets arrive asynchronously from the KG query.
         appPreferenceViewModel.getAvailableDatasets().observe(getViewLifecycleOwner(), datasets -> {
+            // NOTE: the dropdown rows are rendered with ExposureDataset.toString(),
+            // so make sure that method returns getLabel() and NOT the IRI.
             ArrayAdapter<ExposureDataset> adapter = new ArrayAdapter<>(
                     requireContext(), android.R.layout.simple_list_item_1, datasets);
             binding.inputDataset.setAdapter(adapter);
-            String saved = appPreferenceViewModel.getExposureDataset().getValue();
-            if (saved != null && !saved.isEmpty()) {
-                for (ExposureDataset d : datasets) {
-                    if (d.getIri().equals(saved)) {
-                        selectedDataset = d;
-                        binding.inputDataset.setText(d.getLabel(), false);
-                        break;
-                    }
-                }
-            }
+
+            // CHANGED: the old inline "saved IRI -> label" loop was moved into
+            // restoreDatasetSelection() so both observers can share it.
+            restoreDatasetSelection();
         });
 
         binding.inputDataset.setOnItemClickListener((parent, v, position, id) ->
@@ -93,11 +90,14 @@ public class ExposureSettingFragment extends Fragment {
         binding.inputCalcType.setOnItemClickListener((parent, v, position, id) ->
                 selectedCalcType = (CalcType) parent.getItemAtPosition(position));
 
-        appPreferenceViewModel.getExposureDataset().observe(getViewLifecycleOwner(), v -> {
-            if (v != null && !v.isEmpty() && binding.inputDataset.getText().toString().isEmpty()) {
-                binding.inputDataset.setText(v);
-            }
-        });
+        // CHANGED: this observer used to do binding.inputDataset.setText(v), which
+        // wrote the raw IRI into the field whenever the saved/default IRI arrived
+        // before (or without) a matching entry in the dataset list. It must never
+        // touch the text field directly. It now just retries the label lookup,
+        // because the saved IRI may arrive after the dataset list.
+        appPreferenceViewModel.getExposureDataset().observe(getViewLifecycleOwner(),
+                v -> restoreDatasetSelection());
+
         appPreferenceViewModel.getExposureCalcType().observe(getViewLifecycleOwner(), v -> {
             if (v != null && !v.isEmpty() && binding.inputCalcType.getText().toString().isEmpty()) {
                 CalcType c = CalcType.fromValue(v);
@@ -148,12 +148,41 @@ public class ExposureSettingFragment extends Fragment {
                     ? selectedCalcType.getValue()
                     : binding.inputCalcType.getText().toString();
 
+            // The IRI is still what gets stored; it just never appears in the UI.
             appPreferenceViewModel.setExposureDataset(selectedDataset.getIri());
             appPreferenceViewModel.setExposureDatasetTableName(selectedDataset.getDerivedTableName());
             appPreferenceViewModel.setExposureCalcType(calcTypeValue);
             appPreferenceViewModel.setExposureDistance(distanceText);
             Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show();
         });
+    }
+
+    /**
+     * CHANGED (new method): translate the saved dataset IRI into a dataset label.
+     *
+     * Two things load asynchronously: the list of datasets (KG query) and the saved
+     * IRI (preferences). Either can arrive first, so both observers call this and it
+     * only does something once BOTH are available.
+     *
+     * If the saved IRI is not in the list (e.g. an old default that no longer exists
+     * in the KG), the field is left empty. The user then has to pick a dataset, and
+     * the save button already enforces that, so the IRI is never displayed.
+     */
+    private void restoreDatasetSelection() {
+        if (binding == null || selectedDataset != null) return; // view gone, or already resolved/picked
+
+        List<ExposureDataset> datasets = appPreferenceViewModel.getAvailableDatasets().getValue();
+        String savedIri = appPreferenceViewModel.getExposureDataset().getValue();
+        if (datasets == null || datasets.isEmpty() || savedIri == null || savedIri.isEmpty()) return;
+
+        for (ExposureDataset d : datasets) {
+            if (d.getIri().equals(savedIri)) {
+                selectedDataset = d;
+                // 'false' = don't filter the dropdown list down to this one entry
+                binding.inputDataset.setText(d.getLabel(), false);
+                return;
+            }
+        }
     }
 
     @Override

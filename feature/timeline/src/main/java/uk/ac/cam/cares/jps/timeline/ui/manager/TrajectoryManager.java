@@ -43,6 +43,7 @@ import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectoryByDate;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.TrajectoryViewModel;
+import uk.ac.cam.cares.jps.timeline.viewmodel.RoutesViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
 import uk.ac.cam.cares.jps.timeline.viewmodel.TripAgentViewModel;
@@ -53,12 +54,15 @@ import java.time.LocalDate;
  */
 public class TrajectoryManager {
     private final TrajectoryViewModel trajectoryViewModel;
+
     private final NormalBottomSheetViewModel normalBottomSheetViewModel;
     private final Logger LOGGER = Logger.getLogger(TrajectoryManager.class);
     private final List<String> layerNames = new ArrayList<>();
     private final Map<String, String> activityColors = new HashMap<>();
     private String layerId;
-
+    private final RoutesViewModel routesViewModel;   // to know whether we are in route mode
+    private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
+    private boolean trajectoryVisible = true;
     private final TripAgentViewModel tripAgentViewModel;
 
 
@@ -109,6 +113,8 @@ public class TrajectoryManager {
         trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
         tripAgentViewModel = new ViewModelProvider(fragment).get(TripAgentViewModel.class);
+        routesViewModel = new ViewModelProvider(fragment.requireActivity()).get(RoutesViewModel.class);
+        this.mapView = mapView;
 
         // trip == 0 (stationary/stay segment) gets one color
         tripColors.put("0", "#FF0000");
@@ -132,12 +138,29 @@ public class TrajectoryManager {
                 removeAllLayers(style);
                 if (!trajectoryByDate.getTrajectoryStr().isEmpty()) {
                     paintTrajectoryByUserId(style, trajectoryByDate, tripColors, "default");
+                    applyTrajectoryVisibility(style);
                     addTrajectoryClickListener(mapView, selectedColor, fragment.getViewLifecycleOwner());
                 }
             });
 
             resetCameraCentre(mapView, trajectoryByDate);
         });
+    }
+
+    public void setTrajectoryVisible(boolean visible) {
+        trajectoryVisible = visible;
+        mapView.getMapboxMap().getStyle(this::applyTrajectoryVisibility);
+    }
+
+    private void applyTrajectoryVisibility(Style style) {
+        String visibility = trajectoryVisible ? "visible" : "none";
+        if (layerId != null && style.styleLayerExists(layerId)) {
+            style.setStyleLayerProperty(layerId, "visibility", Value.valueOf(visibility));
+        }
+        // The yellow highlight of a clicked segment is a separate layer, hide it too.
+        if (style.styleLayerExists("highlight_layer")) {
+            style.setStyleLayerProperty("highlight_layer", "visibility", Value.valueOf(visibility));
+        }
     }
 
     private String getColorHex(Context context, int colorAttr) {
@@ -154,6 +177,10 @@ public class TrajectoryManager {
         GesturesPlugin gesturesPlugin = GesturesUtils.getGestures(mapView);
 
         gesturesPlugin.addOnMapClickListener(point -> {
+            
+            if (routesViewModel.isRouteMode()) {
+                return false;
+            }
             Log.d("TrajectoryClick", "Map clicked at: " + point.longitude() + ", " + point.latitude());
 
             ScreenCoordinate screenPoint = mapView.getMapboxMap().pixelForCoordinate(point);

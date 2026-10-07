@@ -8,14 +8,13 @@
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
 .DS_Store
-/build
+**/build/
+**/.gradle/
 /captures
 .externalNativeBuild
 .cxx
 local.properties
 /.idea
-**/build/
-.gradle/
 
 /feature/routing
 /feature/locationtracking
@@ -32,6 +31,7 @@ local.properties
 /feature/user/build
 /feature/timeline/build
 /app/build
+
 
 *.png
 core/utils/src/main/res/values/developer_config.xml
