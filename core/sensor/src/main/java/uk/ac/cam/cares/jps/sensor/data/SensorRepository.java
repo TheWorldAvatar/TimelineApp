@@ -20,7 +20,6 @@ import androidx.work.WorkManager;
 
 import java.util.concurrent.TimeUnit;
 
-import uk.ac.cam.cares.jps.sensor.source.worker.TripExposurePipelineWorker;
 
 /**
  * A repository level component that provides control of sensor collection to UI level component
@@ -94,51 +93,13 @@ public class SensorRepository {
         });
     }
 
-    /**
-     * Stop the data collection foreground task, and schedule the trip/exposure pipeline
-     * to run 2 minutes later, giving the final sensor data upload time to reach the server.
-     */
     public void stopRecording() {
         LOGGER.info("stop recording");
-
-        sensorCollectionStateManagerRepository.getDeviceId(new RepositoryCallback<>() {
-            @Override
-            public void onSuccess(String deviceId) {
-                scheduleTripExposurePipeline(deviceId);
-            }
-
-            @Override
-            public void onFailure(Throwable error) {
-                LOGGER.error("Could not retrieve deviceId, skipping trip/exposure pipeline: " + error.getMessage());
-            }
-        });
 
         context.stopService(serviceIntent);
         sensorCollectionStateManagerRepository.setRecordingState(false);
         sensorCollectionStateManagerRepository.setTaskId("");
         sensorCollectionStateManagerRepository.setSelectedSensors(new ArrayList<>());
-    }
-
-    /**
-     * Schedules {@link TripExposurePipelineWorker} to run 2 minutes after recording stops.
-     * The delay gives {@link uk.ac.cam.cares.jps.sensor.source.worker.SensorUploadWorker},
-     * enqueued in SensorService's onDestroy(), time to actually deliver the final batch of
-     * sensor data to the server before the trip/exposure agents are asked to process it.
-     *
-     * @param deviceId Device ID of the current recording session, used to derive the subject IRI.
-     */
-    private void scheduleTripExposurePipeline(String deviceId) {
-        Data inputData = new Data.Builder()
-                .putString("deviceId", deviceId)
-                .build();
-
-        OneTimeWorkRequest pipelineWork = new OneTimeWorkRequest.Builder(TripExposurePipelineWorker.class)
-                .setInitialDelay(2, TimeUnit.MINUTES)
-                .setInputData(inputData)
-                .addTag("tripExposurePipelineWork")
-                .build();
-
-        WorkManager.getInstance(context).enqueue(pipelineWork);
     }
 
 

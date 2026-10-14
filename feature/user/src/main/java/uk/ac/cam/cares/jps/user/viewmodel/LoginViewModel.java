@@ -2,6 +2,7 @@ package uk.ac.cam.cares.jps.user.viewmodel;
 
 import static uk.ac.cam.cares.jps.login.AccountException.CONNECTION_ERROR;
 import static uk.ac.cam.cares.jps.login.AccountException.LOGIN_FAILURE;
+import static uk.ac.cam.cares.jps.login.AccountException.NOT_APPROVED;
 import static uk.ac.cam.cares.jps.login.AccountException.SKEW_SYSTEM_CLOCK;
 
 import android.content.Intent;
@@ -30,6 +31,8 @@ public class LoginViewModel extends ViewModel {
     private MutableLiveData<Boolean> hasLogin = new MutableLiveData<>(false);
     private MutableLiveData<Integer> toastErrorMessage = new MutableLiveData<>(-1);
     private MutableLiveData<Intent> loginIntent = new MutableLiveData<>(null);
+    // true when the user authenticated fine but has not been approved (no "approved" role) yet
+    private MutableLiveData<Boolean> notApproved = new MutableLiveData<>(false);
 
     private LoginRepository repository;
 
@@ -92,7 +95,13 @@ public class LoginViewModel extends ViewModel {
     }
 
     private void setToastErrorMessageValue(Throwable error) {
-        if (error.getMessage().equals(CONNECTION_ERROR)) {
+        if (error.getMessage() == null) {
+            return;
+        }
+        if (error.getMessage().equals(NOT_APPROVED)) {
+            // not an error toast: the fragment shows an "awaiting approval" dialog instead
+            notApproved.postValue(true);
+        } else if (error.getMessage().equals(CONNECTION_ERROR)) {
             toastErrorMessage.postValue(R.string.connection_error);
         } else if (error.getMessage().equals(SKEW_SYSTEM_CLOCK)) {
             // todo: show dialog for skew clock?
@@ -108,6 +117,15 @@ public class LoginViewModel extends ViewModel {
 
     public MutableLiveData<Integer> getToastErrorMessage() {
         return toastErrorMessage;
+    }
+
+    public MutableLiveData<Boolean> getNotApproved() {
+        return notApproved;
+    }
+
+    /** Call after the awaiting-approval dialog has been shown so it is not re-shown on rotation. */
+    public void clearNotApproved() {
+        notApproved.setValue(false);
     }
 
     public MutableLiveData<Intent> getLoginIntent() {

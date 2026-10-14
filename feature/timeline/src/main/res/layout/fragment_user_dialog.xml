@@ -16,301 +16,354 @@
         app:cardCornerRadius="20dp"
         android:background="@android:color/white">
 
-        <LinearLayout
+        <ScrollView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="20dp"
-            android:gravity="center_horizontal">
-
-            <TextView
-                android:id="@+id/user_name_tv"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@{userAccountViewModel.name}"
-                android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
-                android:textStyle="bold"
-                android:textColor="#222222"
-                android:letterSpacing="0.02"
-                android:layout_marginTop="2dp" />
-
-            <TextView
-                android:id="@+id/email_tv"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@{userAccountViewModel.email}"
-                android:textSize="13sp"
-                android:textColor="#888888"
-                android:layout_marginTop="2dp" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#DDDDDD"
-                android:layout_marginTop="12dp" />
+            android:fillViewport="true">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:divider="?android:attr/listDivider"
-                android:showDividers="middle"
-                android:dividerPadding="8dp">
+                android:padding="20dp"
+                android:gravity="center_horizontal">
 
-                <LinearLayout
-                    android:id="@+id/account_setting"
-                    android:layout_width="match_parent"
+                <TextView
+                    android:id="@+id/user_name_tv"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
+                    android:text="@{userAccountViewModel.name}"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+                    android:textStyle="bold"
+                    android:textColor="#222222"
+                    android:letterSpacing="0.02"
+                    android:layout_marginTop="2dp" />
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_account" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Account Settings"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/sensor_setting"
-                    android:layout_width="match_parent"
+                <TextView
+                    android:id="@+id/email_tv"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_sensor" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Sensor Settings"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/timeline_setting"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_timeline" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Timeline Setting"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/exposure_setting"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_timeline" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Exposure Calculation Settings"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
+                    android:text="@{userAccountViewModel.email}"
+                    android:textSize="13sp"
+                    android:textColor="#888888"
+                    android:layout_marginTop="2dp" />
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
                     android:background="#DDDDDD"
+                    android:layout_marginTop="12dp" />
+
+                <!-- ADD START: Map mode selector. The checked button is set in UserDialogFragment
+                    from the current mode, so no checkedButton attribute is needed here. -->
+                <TextView
+                    android:id="@+id/map_mode_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="start"
                     android:layout_marginTop="12dp"
-                    android:layout_marginBottom="8dp" />
+                    android:text="@string/map_mode_label"
+                    android:textSize="13sp"
+                    android:textColor="#888888"
+                    android:visibility="gone" />
 
-                <LinearLayout
-                    android:id="@+id/health_report"
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/dialog_mode_toggle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
+                    android:layout_marginTop="8dp"
+                    app:singleSelection="true"
+                    app:selectionRequired="true"
+                    android:visibility="gone">
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_health" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/dialog_mode_recording_button"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/mode_recording" />
 
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Health Report"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/dialog_mode_routes_button"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/mode_routes" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
 
-                <LinearLayout
-                    android:id="@+id/location_history"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_location" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Location History"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
-
-                <View
+                <View                                      
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
                     android:background="#DDDDDD"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginBottom="8dp" />
-
-
-                <LinearLayout
-                    android:id="@+id/privacy_setting"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_privacy" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Privacy"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
+                    android:layout_marginTop="12dp" 
+                    android:visibility="gone"/>
+                <!-- ADD END -->
 
                 <LinearLayout
-                    android:id="@+id/help_page"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
+                    android:orientation="vertical"
+                    android:divider="?android:attr/listDivider"
+                    android:showDividers="middle"
+                    android:dividerPadding="8dp">
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_help" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Help"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#DDDDDD"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginBottom="8dp" />
-
-
-                <LinearLayout
-                    android:id="@+id/log_out"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp"
-                    android:paddingBottom="8dp">
-
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_logout" />
-
-                    <TextView
-                        style="@style/Theme.TWA.UserItem.Text"
-                        android:layout_marginStart="12dp"
-                        android:text="Log Out"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/footer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:paddingTop="16dp"
-                    android:paddingBottom="24dp"
-                    android:layout_marginTop="16dp">
-
-                    <TextView
-                        android:id="@+id/privacy_policy"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:id="@+id/account_setting"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Privacy Policy"
-                        android:textSize="12sp"
-                        android:textColor="#999999"
-                        android:clickable="true"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:paddingHorizontal="8dp" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="•"
-                        android:textSize="12sp"
-                        android:textColor="#999999"
-                        android:paddingHorizontal="4dp" />
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_account" />
 
-                    <TextView
-                        android:id="@+id/terms_service"
-                        android:layout_width="wrap_content"
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Account Settings"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/sensor_setting"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Terms of Service"
-                        android:textSize="12sp"
-                        android:textColor="#999999"
-                        android:clickable="true"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
-                        android:paddingHorizontal="8dp" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_sensor" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Sensor Settings"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/timeline_setting"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_timeline" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Timeline Setting"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/exposure_setting"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_article" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Exposure Calculation Settings"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#DDDDDD"
+                        android:layout_marginTop="12dp"
+                        android:layout_marginBottom="8dp" />
+
+                    <LinearLayout
+                        android:id="@+id/health_report"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_health" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Health Report"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/location_history"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_location" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Location History"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#DDDDDD"
+                        android:layout_marginTop="12dp"
+                        android:layout_marginBottom="8dp" />
+
+
+                    <LinearLayout
+                        android:id="@+id/privacy_setting"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_privacy" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Privacy"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/help_page"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_help" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Help"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="#DDDDDD"
+                        android:layout_marginTop="12dp"
+                        android:layout_marginBottom="8dp" />
+
+
+                    <LinearLayout
+                        android:id="@+id/log_out"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="12dp"
+                        android:paddingBottom="8dp">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_logout" />
+
+                        <TextView
+                            style="@style/Theme.TWA.UserItem.Text"
+                            android:layout_marginStart="12dp"
+                            android:text="Log Out"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/footer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:paddingTop="16dp"
+                        android:paddingBottom="24dp"
+                        android:layout_marginTop="16dp">
+
+                        <TextView
+                            android:id="@+id/privacy_policy"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Privacy Policy"
+                            android:textSize="12sp"
+                            android:textColor="#999999"
+                            android:clickable="true"
+                            android:foreground="?attr/selectableItemBackgroundBorderless"
+                            android:paddingHorizontal="8dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="•"
+                            android:textSize="12sp"
+                            android:textColor="#999999"
+                            android:paddingHorizontal="4dp" />
+
+                        <TextView
+                            android:id="@+id/terms_service"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Terms of Service"
+                            android:textSize="12sp"
+                            android:textColor="#999999"
+                            android:clickable="true"
+                            android:foreground="?attr/selectableItemBackgroundBorderless"
+                            android:paddingHorizontal="8dp" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
-        </LinearLayout>
+        </ScrollView>
     </androidx.cardview.widget.CardView>
 </layout>

@@ -30,6 +30,142 @@
             app:menu="@menu/timeline_menu" />
 
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/route_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="8dp"
+            android:layout_marginStart="24dp"
+            android:layout_marginEnd="24dp"
+            android:visibility="gone"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="4dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <!-- Start field. completionThreshold=3: suggestions appear after 3 typed characters.
+                     The clear (x) icon empties the field, which also clears the chosen point. -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/start_input_layout"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/route_start_hint"
+                    app:endIconMode="clear_text">
+
+                    <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                        android:id="@+id/start_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:completionThreshold="3"
+                        android:imeOptions="actionDone"
+                        android:inputType="text"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/end_input_layout"
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="@string/route_end_hint"
+                    app:endIconMode="clear_text">
+
+                    <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                        android:id="@+id/end_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:completionThreshold="3"
+                        android:imeOptions="actionDone"
+                        android:inputType="text"
+                        android:maxLines="1" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <!-- Travel mode: one icon button per RouteProfile (icons already exist in this module). -->
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/profile_toggle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        app:singleSelection="true"
+                        app:selectionRequired="true"
+                        app:checkedButton="@+id/profile_driving_button">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/profile_driving_button"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="@string/route_mode_driving"
+                            app:icon="@drawable/baseline_directions_car_24"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/profile_cycling_button"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="@string/route_mode_cycling"
+                            app:icon="@drawable/baseline_directions_bike_24"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/profile_walking_button"
+                            style="?attr/materialButtonOutlinedStyle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:contentDescription="@string/route_mode_walking"
+                            app:icon="@drawable/baseline_directions_walk_24"
+                            app:iconGravity="textStart"
+                            app:iconPadding="0dp" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <View
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
+
+                    <!-- Disabled until both a start and an end are chosen (RoutePanelManager.updateFindButton). -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/find_routes_button"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:enabled="false"
+                        android:text="@string/find_routes" />
+                </LinearLayout>
+
+                <com.google.android.material.progressindicator.LinearProgressIndicator
+                    android:id="@+id/route_progress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:indeterminate="true"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/route_error"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="?attr/colorError"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
             android:id="@+id/trip_detail_bubble"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -75,22 +211,61 @@
                         android:src="@android:drawable/ic_menu_close_clear_cancel" />
                 </androidx.appcompat.widget.LinearLayoutCompat>
 
+                <!-- NEW: pinned header (column titles) that stays visible while the rows scroll -->
+                <LinearLayout
+                    android:id="@+id/trip_detail_table_header_group"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:id="@+id/trip_detail_table_header"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingEnd="8dp"
+                        android:paddingBottom="4dp" />
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="?android:attr/listDivider" />
+                </LinearLayout>
+
                 <androidx.core.widget.NestedScrollView
                     android:id="@+id/trip_detail_scroll"
                     android:layout_width="match_parent"
-                    android:layout_height="60dp"
-                    android:layout_marginTop="4dp"
+                    android:layout_height="100dp"
                     android:fillViewport="false"
                     android:scrollbars="vertical"
                     android:fadeScrollbars="false"
-                    android:overScrollMode="always">
+                    android:overScrollMode="never">
 
-                    <TextView
-                        android:id="@+id/trip_detail_distance_tv"
+                    <!-- NEW: NestedScrollView takes one child, so the message text and the table share a column -->
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:textSize="16sp" />
+                        android:orientation="vertical">
 
+                        <!-- still used for "Loading…" and "No exposure data" -->
+                        <TextView
+                            android:id="@+id/trip_detail_distance_tv"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textSize="16sp" />
+
+                        <!-- NEW: one child row per distance, built in code -->
+                        <LinearLayout
+                            android:id="@+id/trip_detail_table_rows"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingEnd="8dp"
+                            android:showDividers="middle"
+                            android:divider="?android:attr/listDivider" />
+                    </LinearLayout>
                 </androidx.core.widget.NestedScrollView>
 
                 <androidx.appcompat.widget.LinearLayoutCompat
@@ -140,6 +315,7 @@
         android:layout_height="match_parent"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"
         app:behavior_peekHeight="100dp"
+        app:behavior_halfExpandedRatio="0.38"
         app:behavior_fitToContents="false"
         app:behavior_hideable="false"
         android:clickable="true"
@@ -255,6 +431,21 @@
         app:layout_anchorGravity="top|end" />
 
     
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/route_results_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_margin="16dp"
+        android:visibility="gone"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="6dp">
 
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/route_list"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp" />
+    </com.google.android.material.card.MaterialCardView>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

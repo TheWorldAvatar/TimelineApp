@@ -232,6 +232,10 @@
     <string name="auto_delete_on_off">Auto-delete (off)</string>
     <string name="auto_delete_on_off_option">Choose an auto-delete option</string>
     <string name="auto_delete_on_off_description">Automatically delete old location data after a chosen period</string>
+    
+    <string name="awaiting_approval_title">Awaiting approval</string>
+    <string name="awaiting_approval_message">Your account has been created but has not been approved yet. Please contact the app administrator, then sign in again once you have been approved.</string>
+
 
 
 </resources>

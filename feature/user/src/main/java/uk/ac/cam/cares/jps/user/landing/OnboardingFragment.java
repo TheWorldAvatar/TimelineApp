@@ -27,6 +27,8 @@ import androidx.navigation.NavDeepLinkRequest;
 import androidx.navigation.fragment.NavHostFragment;
 import androidx.viewpager2.widget.ViewPager2;
 
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+
 import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -105,6 +107,21 @@ public class OnboardingFragment extends Fragment {
                         .fromUri(Uri.parse(getString(uk.ac.cam.cares.jps.utils.R.string.timeline_fragment_link)))
                         .build();
                 NavHostFragment.findNavController(this).navigate(request);
+            }
+        });
+
+        // Login succeeded but the account has no "approved" role: tell the user and stay on this screen.
+        // LoginRepository has already cleared the local login state, so tapping sign in again does a
+        // fresh login and picks up the role once it has been granted in Keycloak.
+        loginViewModel.getNotApproved().observe(getViewLifecycleOwner(), notApproved -> {
+            if (notApproved) {
+                hideLoading();
+                new MaterialAlertDialogBuilder(requireContext())
+                        .setTitle(R.string.awaiting_approval_title)
+                        .setMessage(R.string.awaiting_approval_message)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show();
+                loginViewModel.clearNotApproved();
             }
         });
 
