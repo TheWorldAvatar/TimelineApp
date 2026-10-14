@@ -7,44 +7,42 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.GnssMeasurementRequest;
+import android.location.GnssMeasurementsEvent;
 import android.location.GnssStatus;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
+import android.location.LocationRequest;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import org.apache.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import com.google.android.gms.location.CurrentLocationRequest;
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
-import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.location.Priority;
-
-import android.location.GnssMeasurementRequest;
-import android.location.GnssMeasurementsEvent;
-import android.os.Build;
-import androidx.core.content.ContextCompat;
-
 
 /**
  * Handles location updates and atmospheric pressure readings.
  *
- * HOW RECORDING WORKS (Google fused provider only, NO smoothing):
+ * NO GOOGLE SERVICES: this class only uses the Android platform (AOSP) APIs. There is no
+ * dependency on com.google.android.gms, so the play-services-location artifact can be removed
+ * from build.gradle (if nothing else in the app uses it).
  *
- *   1. The ONLY location source is Google's fused provider (one-shot request + continuous
- *      updates). The raw GPS provider is not used. The provider is always queried at a fixed
- *      rate (FUSED_INTERVAL_MS = 2 s), regardless of satellite visibility.
- *   2. Every fused fix that passes the accuracy gate becomes the "last good fix".
+ * HOW RECORDING WORKS (platform fused provider, NO smoothing):
+ *
+ *   1. The ONLY location source is the platform fused provider (LocationManager.FUSED_PROVIDER,
+ *      API 31+, so minSdk must be 31 or higher). The fused provider blends GPS, Wi-Fi and cell
+ *      itself, so there is no separate GPS path. It is requested at a fixed rate
+ *      (LOCATION_INTERVAL_MS = 2 s) with no minimum distance, so stationary fixes keep arriving.
+ *   2. Every fix that passes the gates becomes the "last good fix".
  *   3. A ticker records the last good fix on every tick. If a new good fix arrived since the
  *      previous tick, that is a fresh point; if not (bad fixes, tunnel, underground), the last
  *      good fix is recorded again (a "held" point), so the track has no gaps.
@@ -57,12 +55,25 @@ import androidx.core.content.ContextCompat;
  *   5. Fixes are recorded exactly as the provider reported them: no filtering, smoothing or
  *      prediction.
  *
- * The GnssStatus callback therefore does two jobs now: diagnostics (satellites used / signal
- * strength) and driving the adaptive record rate.
+ * The GnssStatus callback does two jobs: diagnostics (satellites used / signal strength) and
+ * driving the adaptive record rate.
+ *
+ * CHANGES vs the Google fused version:
+ *   - FusedLocationProviderClient, LocationRequest (gms), LocationCallback and the one-shot
+ *     getCurrentLocation() request are gone. The first fix now comes from the normal location
+ *     stream (the first-fix freshness guard still applies).
+ *   - minDistance is 0 (the very old raw-GPS version used 2 m, which suppresses callbacks while
+ *     you are standing still).
+ *   - High-accuracy fused requests and the GNSS callbacks need ACCESS_FINE_LOCATION. Coarse-only
+ *     permission would throw a SecurityException, so the permission check requires fine location.
+ *   - FUSED_PROVIDER is a platform API, so there is no gms dependency. On a stock phone it is
+ *     backed by Google's location service. On a de-Googled phone it may be absent, in which case
+ *     no fixes are delivered and an error is logged.
+ *   - GPS_PROVIDER and the network provider are deliberately NOT used directly.
  */
 public class LocationHandler implements SensorHandler, SensorEventListener {
     private Context context;
-    private LocationManager locationManager; // used for GnssStatus (diagnostics + adaptive rate)
+    private LocationManager locationManager; // Location fixes + GnssStatus (diagnostics + adaptive rate)
     private SensorManager sensorManager;
     private Sensor pressureSensor;
     private float currentPressure = SensorManager.PRESSURE_STANDARD_ATMOSPHERE;
@@ -76,7 +87,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     // TUNING CONSTANTS
     // ------------------------------------------------------------------------------------------
 
-    // Fused fixes worse than this (metres) are ignored entirely.
+    // Fixes worse than this (metres) are ignored entirely.
     private static final float MAX_ACCEPTABLE_ACCURACY_M = 100f;
 
     // The very first fix of a session must be this fresh (ms), so a stale cached fix can't start it.
@@ -87,8 +98,13 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     // satellites, a held fix is expected and logging it every tick would be noise.)
     private static final long HELD_AFTER_MS = 5000;
 
-    // How often fused is asked for fixes (ms). FIXED: never changes with satellite state.
-    private static final long FUSED_INTERVAL_MS = 2000;
+    // How often the location provider is asked for fixes (ms). FIXED: never changes with
+    // satellite state.
+    private static final long LOCATION_INTERVAL_MS = 2000;
+
+    // Minimum distance between location updates (metres). 0 = deliver an update every interval
+    // even when stationary.
+    private static final float LOCATION_MIN_DISTANCE_M = 0f;
 
     // How often a point is recorded while satellites are visible (ms).
     private static final long RECORD_INTERVAL_NORMAL_MS = 3000;
@@ -113,8 +129,8 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     // Most recent fix that passed the gates. Re-recorded every tick until a newer one arrives.
     private Location lastGoodFix;
 
-    private FusedLocationProviderClient fusedLocationClient;
-    private LocationCallback locationCallback;
+    // True while the LocationListener is registered with LocationManager.
+    private boolean locationListenerRegistered = false;
 
     // === GNSS STATE: updated by the GnssStatus callback ===
     private volatile int satsVisible = -1;
@@ -132,6 +148,41 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     private volatile boolean noSatsMode = false;
     // elapsedRealtime when satsUsed first dropped below MIN_SATS_USED; 0 = satellites are fine.
     private long noGnssSinceMs = 0;
+
+    // ------------------------------------------------------------------------------------------
+    // LOCATION LISTENER (platform LocationManager, no Google services)
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Receives every fix from the fused provider and passes it to the common gate.
+     *
+     * The empty onStatusChanged / onProviderEnabled / onProviderDisabled are required on older
+     * Android versions, where these methods are abstract and a missing implementation would crash
+     * with AbstractMethodError when the framework calls them.
+     */
+    private final LocationListener locationListener = new LocationListener() {
+        @Override
+        public void onLocationChanged(@NonNull Location location) {
+            handleIncomingFix(location, "fused");
+        }
+
+        @Override
+        public void onProviderEnabled(@NonNull String provider) {
+            LOGGER.info("LOCATION: provider enabled: " + provider);
+        }
+
+        @Override
+        public void onProviderDisabled(@NonNull String provider) {
+            LOGGER.warn("LOCATION: provider disabled: " + provider
+                    + " (location switched off in system settings?)");
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+            // Deprecated since API 29 and never called on Android Q+. Kept empty for old devices.
+        }
+    };
 
     private final GnssStatus.Callback gnssStatusCallback = new GnssStatus.Callback() {
         @Override
@@ -182,10 +233,11 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     // ------------------------------------------------------------------------------------------
 
     /**
-     * Single entry point for every incoming fused fix.
+     * Single entry point for every incoming fix.
      *
-     * Applies the accuracy gate and the first-fix freshness guard. A fix that passes becomes the
-     * new last good fix; one that fails is only logged and the previous good fix stays in place.
+     * Applies the accuracy gate, the first-fix freshness guard and the stationary guard. A fix
+     * that passes becomes the new last good fix; one that fails is only logged and the previous
+     * good fix stays in place.
      *
      * Safe to call from any thread.
      */
@@ -258,7 +310,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
                         rawLatest = latestLocation;
                     }
 
-                    // DIAGNOSTICS: shows the raw latest fused fix, even if it was rejected.
+                    // DIAGNOSTICS: shows the raw latest fix, even if it was rejected.
                     LOGGER.info("LOCATION DIAG tick: "
                             + (rawLatest != null ? describeFix(rawLatest) : "no fix yet")
                             + " mode=" + (noSatsMode ? "NO_SATS" : "NORMAL"));
@@ -308,7 +360,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
         if (!noSatsMode && lostForMs >= SATS_LOST_DEBOUNCE_MS) {
             noSatsMode = true;
             LOGGER.error("LOCATION GNSS ALERT: satsUsed=" + satsUsed + "/" + satsVisible
-                    + " for " + (lostForMs / 1000) + "s, fixes are probably network-derived. "
+                    + " for " + (lostForMs / 1000) + "s, no usable GPS lock. "
                     + "Switching to " + (RECORD_INTERVAL_NO_SATS_MS / 1000) + "s recording.");
         }
     }
@@ -323,105 +375,69 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
         this.sensorManager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
         this.pressureSensor = sensorManager.getDefaultSensor(Sensor.TYPE_PRESSURE);
         this.locationManager = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
-        this.fusedLocationClient = LocationServices.getFusedLocationProviderClient(context);
         this.locationData = new JSONArray();
         this.mslConstant = 1006;
     }
 
+    /** The location providers and the GNSS callbacks all require ACCESS_FINE_LOCATION. */
     private boolean hasFineLocationPermission() {
         return ActivityCompat.checkSelfPermission(
                 context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private boolean hasAnyLocationPermission() {
-        return hasFineLocationPermission()
-                || ActivityCompat.checkSelfPermission(
-                context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
-    }
-
     // ------------------------------------------------------------------------------------------
-    // FUSED LOCATION PROVIDER
+    // FUSED PROVIDER
     // ------------------------------------------------------------------------------------------
 
     /**
-     * One-shot request, used to get a quick first fix. maxUpdateAge is 0, so a cached fix is never
-     * accepted; the first-fix freshness guard in handleIncomingFix() is a second line of defence.
+     * Continuous updates from the platform fused provider at LOCATION_INTERVAL_MS (2 s): the only
+     * stream of fixes. The interval is deliberately NOT adapted to satellite visibility, so this
+     * is requested once per session and never restarted.
+     *
+     * Delivered on the main thread, the same thread as the ticker and the GnssStatus callback.
      */
-    private void requestCurrentLocation() {
+    private void startProviderUpdates() {
 
-        if (!hasAnyLocationPermission()) {
-            LOGGER.warn("LOCATION: permission not granted");
+        if (!hasFineLocationPermission()) {
+            LOGGER.warn("LOCATION: fine location permission not granted, updates not started");
             return;
         }
 
-        CurrentLocationRequest request =
-                new CurrentLocationRequest.Builder()
-                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-                        .setMaxUpdateAgeMillis(0)
-                        .setDurationMillis(30_000)
-                        .build();
-
-        LOGGER.info("LOCATION: requesting fresh fused location");
-
-        fusedLocationClient.getCurrentLocation(
-                request,
-                null
-        ).addOnSuccessListener(location -> {
-
-            if (location == null) {
-                LOGGER.warn("LOCATION: fused getCurrentLocation returned NULL");
-                return;
-            }
-
-            handleIncomingFix(location, "fused-current");
-
-        }).addOnFailureListener(e -> {
-            LOGGER.error("LOCATION: fused getCurrentLocation failed", e);
-        });
-    }
-
-    /**
-     * Continuous fused updates: the main stream of fixes, always at FUSED_INTERVAL_MS (2 s).
-     * The interval is deliberately NOT adapted to satellite visibility, so this is requested
-     * once per session and never restarted.
-     */
-    private void startFusedLocationUpdates() {
-
-        if (!hasAnyLocationPermission()) {
-            LOGGER.warn("LOCATION: permission not granted");
+        if (locationListenerRegistered) {
             return;
         }
 
-        LocationRequest locationRequest =
-                new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, FUSED_INTERVAL_MS)
-                        .setMinUpdateIntervalMillis(FUSED_INTERVAL_MS)
-                        .build();
+        if (!locationManager.hasProvider(LocationManager.FUSED_PROVIDER)) {
+            LOGGER.error("LOCATION: device has no fused provider, no location updates");
+            return;
+        }
 
-        locationCallback = new LocationCallback() {
+        if (!locationManager.isProviderEnabled(LocationManager.FUSED_PROVIDER)) {
+            // Still register: the listener starts receiving fixes as soon as the user turns
+            // location on, and onProviderEnabled() logs it.
+            LOGGER.warn("LOCATION: fused provider is currently disabled in system settings");
+        }
 
-            @Override
-            public void onLocationResult(LocationResult locationResult) {
+        LocationRequest request = new LocationRequest.Builder(LOCATION_INTERVAL_MS)
+                .setMinUpdateIntervalMillis(LOCATION_INTERVAL_MS)
+                .setMinUpdateDistanceMeters(LOCATION_MIN_DISTANCE_M)
+                .setQuality(LocationRequest.QUALITY_HIGH_ACCURACY)
+                .build();
 
-                if (locationResult == null) {
-                    return;
-                }
-
-                for (Location location : locationResult.getLocations()) {
-                    if (location == null) {
-                        continue;
-                    }
-                    handleIncomingFix(location, "fused-updates");
-                }
-            }
-        };
-
-        fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                locationCallback,
-                Looper.getMainLooper()
-        );
-
-        LOGGER.info("LOCATION: continuous fused updates started, interval=" + FUSED_INTERVAL_MS + "ms");
+        try {
+            locationManager.requestLocationUpdates(
+                    LocationManager.FUSED_PROVIDER,
+                    request,
+                    ContextCompat.getMainExecutor(context),
+                    locationListener);
+            locationListenerRegistered = true;
+            LOGGER.info("LOCATION: continuous fused updates started, interval="
+                    + LOCATION_INTERVAL_MS + "ms");
+        } catch (SecurityException e) {
+            LOGGER.warn("LOCATION: could not register location listener (fine location missing?)", e);
+        } catch (IllegalArgumentException e) {
+            LOGGER.error("LOCATION: fused provider not available", e);
+        }
     }
 
     // ------------------------------------------------------------------------------------------
@@ -429,7 +445,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     // ------------------------------------------------------------------------------------------
 
     /**
-     * Starts location and pressure data updates. Requires location permission to function properly.
+     * Starts location and pressure data updates. Requires fine location permission to function properly.
      */
     @Override
     public void start() {
@@ -450,8 +466,8 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
             return;
         }
 
-        if (!hasAnyLocationPermission()) {
-            LOGGER.warn("LOCATION: permission not granted");
+        if (!hasFineLocationPermission()) {
+            LOGGER.warn("LOCATION: fine location permission not granted");
             return;
         }
 
@@ -479,8 +495,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
         }
 
         startFullTrackingGnss();
-        requestCurrentLocation();
-        startFusedLocationUpdates();
+        startProviderUpdates();
 
         locationRecordHandler.post(locationRecordRunnable);
 
@@ -493,11 +508,12 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
         }
     }
 
+    /**
+     * Asks the GNSS chip to stay fully on (no duty cycling) while we are recording, so a
+     * duty-cycled chip can't leave long gaps between fixes. Platform API (31+), no Google
+     * services involved.
+     */
     private void startFullTrackingGnss() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            LOGGER.warn("LOCATION: full GNSS tracking needs API 31+, GNSS may be duty-cycled");
-            return;
-        }
         if (!hasFineLocationPermission() || gnssMeasurementsRegistered) {
             return;
         }
@@ -544,9 +560,9 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
 
         locationRecordHandler.removeCallbacks(locationRecordRunnable);
 
-        if (locationCallback != null) {
-            fusedLocationClient.removeLocationUpdates(locationCallback);
-            locationCallback = null;
+        if (locationListenerRegistered) {
+            locationManager.removeUpdates(locationListener);
+            locationListenerRegistered = false;
         }
 
         // Stop GNSS status updates and reset the cached values and adaptive-rate state
@@ -587,7 +603,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     // ------------------------------------------------------------------------------------------
 
     /**
-     * Adds one point to the memory buffer, exactly as the fused provider reported it. The same
+     * Adds one point to the memory buffer, exactly as the provider reported it. The same
      * Location may be recorded on several ticks in a row when no newer good fix exists (a "held"
      * point); each record still gets its own "time".
      */
@@ -664,13 +680,13 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
      */
     @Override
     public JSONArray getSensorData() {
-        LOGGER.info(
-                "LOCATION DATA READ: returning "
-                        + locationData.length()
-                        + " records"
-        );
-
         synchronized (sensorDataLock) {
+            LOGGER.info(
+                    "LOCATION DATA READ: returning "
+                            + locationData.length()
+                            + " records"
+            );
+
             try {
                 return new JSONArray(locationData.toString());
             } catch (JSONException e) {

@@ -177,7 +177,7 @@ public class TrajectoryManager {
         GesturesPlugin gesturesPlugin = GesturesUtils.getGestures(mapView);
 
         gesturesPlugin.addOnMapClickListener(point -> {
-            
+
             if (routesViewModel.isRouteMode()) {
                 return false;
             }

@@ -29,6 +29,9 @@ public class LoginRepository {
     private static final Logger LOGGER = LogManager.getLogger(LoginRepository.class);
     private User user;
 
+    // Name of the Keycloak client role that marks an account as approved (see Keycloak setup)
+    private static final String APPROVED_ROLE = "approved";
+
     LoginSource loginSource;
 
     @Inject
@@ -37,7 +40,8 @@ public class LoginRepository {
     }
 
     public void initAuth(RepositoryCallback<Boolean> callback) {
-        loginSource.initLoginSource(callback);
+        // already-logged-in users are also checked, so removing the role later locks them out
+        loginSource.initLoginSource(withApprovalCheck(callback));
     }
 
     public void doAuth(RepositoryCallback<Intent> callback) {
@@ -45,7 +49,62 @@ public class LoginRepository {
     }
 
     public void processAuthorizationResponse(Intent data, RepositoryCallback<Boolean> repositoryCallback) {
-        loginSource.processAuthorizationResponse(data, repositoryCallback);
+        // runs right after the user has logged in / signed up through Keycloak
+        loginSource.processAuthorizationResponse(data, withApprovalCheck(repositoryCallback));
+    }
+
+    /**
+     * Wraps a "login finished" callback: when login succeeds, additionally check that the access
+     * token carries the "approved" client role. If not, the local login state is cleared (so the
+     * next attempt is a fresh login that picks up a newly granted role) and the callback receives
+     * an AccountException(NOT_APPROVED) instead of success.
+     */
+    private RepositoryCallback<Boolean> withApprovalCheck(RepositoryCallback<Boolean> downstream) {
+        return new RepositoryCallback<>() {
+            @Override
+            public void onSuccess(Boolean result) {
+                checkApproved(downstream);
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                downstream.onFailure(error);
+            }
+        };
+    }
+
+    /**
+     * Reads the access token ALREADY STORED on the phone (no network call, no refresh).
+     * Do not use getAccessToken() here: at app start the AuthorizationService has not been created
+     * yet, so refreshing an expired token would hit a null service and crash the app on launch.
+     * The role claims in the stored token are as of the last login/refresh, which is exactly what
+     * we want: a fresh login (the only way to get in after being rejected) always has current roles.
+     */
+    private void checkApproved(RepositoryCallback<Boolean> downstream) {
+        String token = null;
+        try {
+            token = loginSource.authStateManager.getCurrent().getAccessToken();
+        } catch (Exception e) {
+            LOGGER.error("Could not read stored access token", e);
+        }
+        decide(token, downstream);
+    }
+
+    private void decide(String token, RepositoryCallback<Boolean> downstream) {
+        LOGGER.info("TOKEN_DEBUG " + token);
+        boolean approved = false;
+        try {
+            approved = TokenRoles.hasClientRole(token, loginSource.configuration.getClientId(), APPROVED_ROLE);
+        } catch (Exception e) {
+            LOGGER.error("Approval check failed", e);
+        }
+        if (approved) {
+            downstream.onSuccess(true);
+        } else {
+            LOGGER.info("Logged in but account has no '" + APPROVED_ROLE + "' role");
+            loginSource.authStateManager.clearLoginState();
+            downstream.onFailure(new AccountException(AccountException.NOT_APPROVED));
+        }
     }
 
     public void getAccessToken(RepositoryCallback<String> callback) {

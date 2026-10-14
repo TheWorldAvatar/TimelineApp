@@ -29,7 +29,9 @@ public class ExposureSettingFragment extends Fragment {
     private enum CalcType {
         TRAJECTORY_COUNT("Trajectory Count", "TrajectoryCount"),
         TRAJECTORY_AREA("Trajectory Area", "TrajectoryArea"),
-        TRAJECTORY_AREA_WEIGHTED_SUM("Trajectory Area Weighted Sum", "TrajectoryAreaWeightedSum");
+        TRAJECTORY_AREA_WEIGHTED_SUM("Trajectory Area Weighted Sum", "TrajectoryAreaWeightedSum"),
+        TRAJECTORY_RASTER_AVERAGE("Trajectory Raster Average", "TrajectoryRasterAverage"),
+        TRAJECTORY_RASTER_AREA("Trajectory Raster Area", "TrajectoryRasterArea");
 
         private final String label;
         private final String value;

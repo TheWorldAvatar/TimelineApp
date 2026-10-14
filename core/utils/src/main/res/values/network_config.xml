@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="host_with_port">http://10.0.94.228:58085</string>
+    <string name="host_with_port">http://10.0.94.242:58085</string>
 
     <string name="trajectoryqueryagent_createLayer">trajectoryqueryagent/createLayer</string>
     <string name="trajectoryqueryagent_getDatesWithData">trajectoryqueryagent/getDatesWithData</string>
     <string name="useragent_registerphone">user-agent/registerPhone</string>
     <string name="geoserver_jwt_proxy_geoserver_twa_wfs">geoserver-jwt-proxy/geoserver/twa/wfs</string>
+
+    <!-- NEW: same proxy, same workspace, but the WMS endpoint. Used to render raster layers
+         (ndvi_raster, utci_raster) as a PNG. -->
+    <string name="geoserver_jwt_proxy_geoserver_twa_wms">geoserver-jwt-proxy/geoserver/twa/wms</string>
+
     <string name="sensorloggeragent_update">sensorloggermobileappagent/update_for_timeline</string>
 
     <string name="tripagent_process_trajectory_for_timeline">trip-agent/process_trajectory_for_timeline</string>
@@ -17,7 +22,4 @@
     <string name="ors_base_url">https://api.openrouteservice.org</string>
     <string name="ors_directions_path">v2/directions</string>
     <string name="ors_autocomplete_path">geocode/autocomplete</string>
-
-    <string name="hawkercentre_typename">twa:hawker_centres</string>
-    <string name="blazegraph_sparql_path">feature-info-agent/datasets</string>
 </resources>
