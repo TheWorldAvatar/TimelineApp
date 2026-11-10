@@ -30,12 +30,6 @@
         </service>
 
 
-        <receiver android:name=".source.activity.ActivityRecognitionReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="com.google.android.gms.location.ACTIVITY_RECOGNITION" />
-            </intent-filter>
-        </receiver>
 
     </application>
 

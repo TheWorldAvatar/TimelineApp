@@ -48,7 +48,9 @@ import javax.inject.Inject;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import uk.ac.cam.cares.jps.sensor.data.SensorCollectionStateManagerRepository;
-import uk.ac.cam.cares.jps.sensor.source.activity.ActivityRecognitionReceiver;
+import uk.ac.cam.cares.jps.sensor.source.activity.SensorActivityClassifier;
+import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
+import uk.ac.cam.cares.jps.sensor.source.handler.LocationHandler;
 import uk.ac.cam.cares.jps.sensor.source.worker.BufferFlushWorker;
 import uk.ac.cam.cares.jps.sensor.source.worker.SensorUploadWorker;
 import uk.ac.cam.cares.jps.sensor.source.handler.SensorHandlerManager;
@@ -58,8 +60,6 @@ import uk.ac.cam.cares.jps.sensor.source.network.SensorNetworkSource;
 import uk.ac.cam.cares.jps.utils.RepositoryCallback;
 
 
-import com.google.android.gms.location.ActivityRecognition;
-import com.google.android.gms.location.ActivityRecognitionClient;
 
 /**
  * A foreground service that keeps sensor recording running even when the app is terminated by user or the system.
@@ -73,6 +73,8 @@ public class SensorService extends Service {
     @Inject
     SensorHandlerManager sensorHandlerManager;
     @Inject
+    SensorLocalSource sensorLocalSource;
+    @Inject
     NetworkChangeReceiver networkChangeReceiver;
     @Inject
     SensorCollectionStateManagerRepository sensorCollectionStateManagerRepository;
@@ -81,10 +83,9 @@ public class SensorService extends Service {
     private final String CHANNEL_ID = "Sensors";
     private final int SENSOR_FRAGMENT_REQUEST_CODE = 100;
     private final Logger LOGGER = Logger.getLogger(SensorService.class);
-    private ActivityRecognitionClient activityRecognitionClient;
+    private SensorActivityClassifier activityClassifier;
     Timer bufferWorkerTimer = new Timer();
     Timer uploadWorkerTimer = new Timer();
-    private PendingIntent activityRecognitionPendingIntent;
     private Map<String, Integer> sensorSettingsMap;
     private OneTimeWorkRequest dataUploadWork;
     private OneTimeWorkRequest bufferFlushWork;
@@ -146,15 +147,23 @@ public class SensorService extends Service {
         }
         sensorHandlerManager.startSelectedSensors(selectedSensors);
 
-        // register activity recognition
+        // sensor based activity classification (no Google Play services)
         if (selectedSensors.contains(SensorType.ACTIVITY)) {
             if (!checkActivityRecognitionPermission()) {
-                LOGGER.warn("Activity Recognition permission is required but not granted.");
-                stopSelf();
-                return START_NOT_STICKY;
-            } else {
-                registerActivityRecognitionClient();
+                LOGGER.warn("Activity Recognition permission not granted: step detector unavailable, "
+                        + "activity is classified from accelerometer and speed only.");
             }
+            LocationHandler locationHandler = null;
+            if (selectedSensors.contains(SensorType.LOCATION)
+                    && sensorHandlerManager.getSensorHandler(SensorType.LOCATION) instanceof LocationHandler) {
+                locationHandler = (LocationHandler) sensorHandlerManager.getSensorHandler(SensorType.LOCATION);
+            }
+            activityClassifier = new SensorActivityClassifier(
+                    this,
+                    (android.hardware.SensorManager) getSystemService(SENSOR_SERVICE),
+                    sensorLocalSource,
+                    locationHandler);
+            activityClassifier.start();
         }
 
         scheduleBufferFlushTask();
@@ -280,27 +289,6 @@ public class SensorService extends Service {
         });
     }
 
-    @SuppressLint("MissingPermission")  // assume checked
-    private void registerActivityRecognitionClient() {
-        Intent activityIntent = new Intent(this, ActivityRecognitionReceiver.class);
-        activityRecognitionClient = ActivityRecognition.getClient(this);
-        activityRecognitionPendingIntent = PendingIntent.getBroadcast(
-                this,
-                sensorSettingsMap.get("activity_request_code"),
-                activityIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE
-        );
-
-        activityRecognitionClient.requestActivityUpdates(
-                sensorSettingsMap.get("activity_recognition_update_interval"),
-                activityRecognitionPendingIntent
-        ).addOnSuccessListener(aVoid -> {
-            LOGGER.info("Successfully requested activity updates");
-        }).addOnFailureListener(e -> {
-            LOGGER.error("Failed to request activity updates", e);
-        });
-    }
-
     /**
      * Create and configure notification to be shown when the service is running
      *
@@ -344,7 +332,7 @@ public class SensorService extends Service {
     private boolean checkActivityRecognitionPermission() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION)
                 != PackageManager.PERMISSION_GRANTED) {
-            LOGGER.warn("Activity Recognition permission not granted. Unable to start service.");
+            LOGGER.warn("Activity Recognition permission not granted.");
             return false; // Permission not granted
         }
         return true; // Permission granted
@@ -381,13 +369,10 @@ public class SensorService extends Service {
 
         }
 
-        // Stop activity recognition updates
-        if (activityRecognitionClient != null && activityRecognitionPendingIntent != null) {
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED) {
-                LOGGER.warn("Activity Recognition permission not granted. Unable to remove activity updates.");
-                return;
-            }
-            activityRecognitionClient.removeActivityUpdates(activityRecognitionPendingIntent);
+        // Stop activity classification
+        if (activityClassifier != null) {
+            activityClassifier.stop();
+            activityClassifier = null;
         }
 
         LOGGER.info("Stopping sensor service");

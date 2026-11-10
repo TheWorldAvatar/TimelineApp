@@ -352,54 +352,119 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:orientation="vertical"
             android:padding="8dp">
 
-            <!-- repeat this row per legend entry -->
             <LinearLayout
+                android:id="@+id/legend_line_1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingVertical="4dp"
-                android:paddingEnd="12dp">
-
-                <View
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:layout_marginEnd="8dp"
-                    android:background="@drawable/legend_swatch_shape"
-                    android:backgroundTint="#FF0000" />
-
-                <TextView
+                android:orientation="horizontal">
+                <LinearLayout
+                    android:id="@+id/legend_row_1"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    android:text="Visit" />
-            </LinearLayout>
-            <!-- end repeat -->
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingVertical="4dp"
+                    android:paddingEnd="12dp">
 
+                    <View
+                        android:id="@+id/legend_swatch_1"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/legend_swatch_shape"
+                        android:backgroundTint="#FF0000" />
+
+                    <TextView
+                        android:id="@+id/legend_text_1"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:text="Visit" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/legend_row_2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingVertical="4dp"
+                    android:paddingEnd="12dp">
+
+                    <View
+                        android:id="@+id/legend_swatch_2"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/legend_swatch_shape"
+                        android:backgroundTint="#008000" />
+
+                    <TextView
+                        android:id="@+id/legend_text_2"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:text="Trip" />
+                </LinearLayout>
+            </LinearLayout>
             <LinearLayout
+                android:id="@+id/legend_line_2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:paddingVertical="4dp">
-
-                <View
-                    android:layout_width="14dp"
-                    android:layout_height="14dp"
-                    android:layout_marginEnd="8dp"
-                    android:background="@drawable/legend_swatch_shape"
-                    android:backgroundTint="#008000" />
-
-                <TextView
+                android:orientation="horizontal">
+                <LinearLayout
+                    android:id="@+id/legend_row_3"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:textSize="13sp"
-                    android:text="Trip" />
-            </LinearLayout>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingVertical="4dp"
+                    android:paddingEnd="12dp"
+                    android:visibility="gone">
 
+                    <View
+                        android:id="@+id/legend_swatch_3"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/legend_swatch_shape"
+                        android:backgroundTint="#808080" />
+
+                    <TextView
+                        android:id="@+id/legend_text_3"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:text="Vehicle" />
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/legend_row_4"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingVertical="4dp"
+                    android:paddingEnd="12dp"
+                    android:visibility="gone">
+
+                    <View
+                        android:id="@+id/legend_swatch_4"
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:layout_marginEnd="8dp"
+                        android:background="@drawable/legend_swatch_shape"
+                        android:backgroundTint="#808080" />
+
+                    <TextView
+                        android:id="@+id/legend_text_4"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textSize="13sp"
+                        android:text="Bike" />
+                </LinearLayout>
+            </LinearLayout>
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
     <com.google.android.material.button.MaterialButton
@@ -409,6 +474,21 @@
         android:layout_marginEnd="16dp"
         android:translationY="-96dp"
         android:text="@string/run_trip_agent"
+        app:backgroundTint="@color/fab_idle"
+        android:textColor="@android:color/white"
+        app:cornerRadius="4dp"
+        app:elevation="6dp"
+        app:layout_anchor="@id/bottom_sheet_container"
+        app:layout_anchorGravity="top|end" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/trajectory_mode_button"
+        android:visibility="gone"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="16dp"
+        android:translationY="-152dp"
+        android:text="@string/trajectory_mode_trips"
         app:backgroundTint="@color/fab_idle"
         android:textColor="@android:color/white"
         app:cornerRadius="4dp"

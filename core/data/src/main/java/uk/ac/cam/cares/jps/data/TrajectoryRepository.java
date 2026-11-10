@@ -68,4 +68,35 @@ public class TrajectoryRepository {
         });
     }
 
+
+    /**
+     * Get the trajectory of the logged in user on the chosen date, split by activity.
+     * The result carries activity_type for each segment. An empty string means no data.
+     */
+    public void getActivityTrajectory(
+            long lowerbound,
+            long upperbound,
+            RepositoryCallback<String> callback
+    ) {
+        loginRepository.getAccessToken(new RepositoryCallback<>() {
+            @Override
+            public void onSuccess(String accessToken) {
+                trajectoryNetworkSource.getActivityTrajectory(
+                        accessToken,
+                        lowerbound,
+                        upperbound,
+                        callback::onSuccess,
+                        error -> callback.onFailure(
+                                new Exception("Failed to get activity trajectory for range ["
+                                        + lowerbound + ", " + upperbound + "]", error)
+                        )
+                );
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                callback.onFailure(new Exception("Failed to obtain access token", error));
+            }
+        });
+    }
 }

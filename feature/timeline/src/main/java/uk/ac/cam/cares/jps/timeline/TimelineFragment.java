@@ -215,10 +215,10 @@ public class TimelineFragment extends Fragment {
             if (Boolean.TRUE.equals(isRecording)) {
                 recordingStateViewModel.stopRecording();
             } else {
-                recordingStateViewModel.toggleAllSensors(true);
+                // use the sensors toggled in Sensor Settings rather than forcing all on
                 List<SensorType> sensors = recordingStateViewModel.getSelectedSensors().getValue();
                 if (sensors == null || sensors.isEmpty()) {
-                    Toast.makeText(requireContext(), "No sensors enabled. Cannot start recording.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), "No sensors enabled. Enable sensors in Sensor Settings first.", Toast.LENGTH_SHORT).show();
                     return;
                 }
 
@@ -319,7 +319,12 @@ public class TimelineFragment extends Fragment {
     }
 
     private void autoStartRecordingIfPossible() {
-        recordingStateViewModel.toggleAllSensors(true);
+        // respect the sensors toggled in Sensor Settings
+        List<SensorType> sensors = recordingStateViewModel.getSelectedSensors().getValue();
+        if (sensors == null || sensors.isEmpty()) {
+            Toast.makeText(requireContext(), "Auto-start skipped: no sensors enabled in Sensor Settings", Toast.LENGTH_SHORT).show();
+            return;
+        }
         recordingStateViewModel.startRecording();
         Toast.makeText(requireContext(), "Auto-start on", Toast.LENGTH_SHORT).show();
     }
@@ -346,6 +351,7 @@ public class TimelineFragment extends Fragment {
         binding.legendCard.setVisibility(recordingVisibility);
         binding.runTripAgentButton.setVisibility(recordingVisibility);
         binding.datasetLayerButton.setVisibility(recordingVisibility);
+        //binding.trajectoryModeButton.setVisibility(recordingVisibility);
         if (routeMode) {
             // Hidden only. In recording mode it stays hidden until a trip is selected, as before.
             binding.tripDetailBubble.setVisibility(View.GONE);
@@ -354,11 +360,11 @@ public class TimelineFragment extends Fragment {
         // Keep the recorded trajectories off the map while choosing a route.
         trajectoryManager.setTrajectoryVisible(!routeMode);
     }
-    
+
     private void setupTripDetailScroll() {
-    binding.tripDetailScroll.setOnTouchListener((v, event) -> {
-        v.getParent().requestDisallowInterceptTouchEvent(true);
-        return false;
-    });
-}
+        binding.tripDetailScroll.setOnTouchListener((v, event) -> {
+            v.getParent().requestDisallowInterceptTouchEvent(true);
+            return false;
+        });
+    }
 }

@@ -157,7 +157,12 @@ public class LoginSource {
                 clientId.get(),
                 ResponseTypeValues.CODE,
                 configuration.getRedirectUri())
-                .setScope(configuration.getScope());
+                .setScope(configuration.getScope())
+                // Always show the Keycloak login form, even if the browser still has a Keycloak
+                // session. Without this, after an unapproved account is rejected, tapping sign in
+                // would silently log the SAME account straight back in (single sign-on cookie),
+                // and the user could never pick a different account.
+                .setPrompt(AuthorizationRequest.Prompt.LOGIN);
 
         authRequest.set(authRequestBuilder.build());
     }
@@ -183,8 +188,8 @@ public class LoginSource {
         }
 
         Intent intent = authService.getAuthorizationRequestIntent(
-            authRequest.get(),
-            authIntent.get());
+                authRequest.get(),
+                authIntent.get());
         callback.onSuccess(intent);
     }
 

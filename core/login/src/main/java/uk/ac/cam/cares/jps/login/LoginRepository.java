@@ -32,6 +32,9 @@ public class LoginRepository {
     // Name of the Keycloak client role that marks an account as approved (see Keycloak setup)
     private static final String APPROVED_ROLE = "approved";
 
+    // Set when an unapproved account is rejected; used once to end its Keycloak browser session
+    private Intent rejectedAccountLogoutIntent;
+
     LoginSource loginSource;
 
     @Inject
@@ -59,6 +62,13 @@ public class LoginRepository {
      * next attempt is a fresh login that picks up a newly granted role) and the callback receives
      * an AccountException(NOT_APPROVED) instead of success.
      */
+    /** Returns (and forgets) the intent that ends the rejected account's Keycloak session, or null. */
+    public Intent takeRejectedAccountLogoutIntent() {
+        Intent intent = rejectedAccountLogoutIntent;
+        rejectedAccountLogoutIntent = null;
+        return intent;
+    }
+
     private RepositoryCallback<Boolean> withApprovalCheck(RepositoryCallback<Boolean> downstream) {
         return new RepositoryCallback<>() {
             @Override
@@ -91,7 +101,6 @@ public class LoginRepository {
     }
 
     private void decide(String token, RepositoryCallback<Boolean> downstream) {
-        LOGGER.info("TOKEN_DEBUG " + token);
         boolean approved = false;
         try {
             approved = TokenRoles.hasClientRole(token, loginSource.configuration.getClientId(), APPROVED_ROLE);
@@ -102,6 +111,18 @@ public class LoginRepository {
             downstream.onSuccess(true);
         } else {
             LOGGER.info("Logged in but account has no '" + APPROVED_ROLE + "' role");
+            // Build the Keycloak "end session" intent BEFORE clearing the local state, because it
+            // needs the stored ID token. Launching it later ends the browser's Keycloak session, so
+            // the next login form is clean (no remembered username / no silent re-login).
+            rejectedAccountLogoutIntent = null;
+            try {
+                // authService can still be null this early at app start; then we just skip it
+                if (loginSource.authService != null) {
+                    rejectedAccountLogoutIntent = getLogOutIntent();
+                }
+            } catch (Exception e) {
+                LOGGER.error("Could not prepare end-session intent", e);
+            }
             loginSource.authStateManager.clearLoginState();
             downstream.onFailure(new AccountException(AccountException.NOT_APPROVED));
         }
