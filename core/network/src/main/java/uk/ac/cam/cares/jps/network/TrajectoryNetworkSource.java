@@ -66,6 +66,51 @@ public class TrajectoryNetworkSource {
         requestQueue.add(createLayerRequest);
     }
 
+    /**
+     * Gets the trajectory split by activity (layer trajectoryUserIdByActivity). Its features carry
+     * activity_type, which the trips layer used by getTrajectory() does not. The layers are
+     * created by the createLayer call that getTrajectory() already makes, so this is a single
+     * WFS request. The success callback receives "" when there is no data for the range.
+     */
+    public void getActivityTrajectory(String accessToken, long lowerbound, long upperbound,
+                                      Response.Listener<String> onSuccessUpper,
+                                      Response.ErrorListener onFailureUpper) {
+        String uri = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
+                .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.geoserver_jwt_proxy_geoserver_twa_wfs))
+                .addQueryParameter("service", "WFS")
+                .addQueryParameter("version", "1.0.0")
+                .addQueryParameter("request", "GetFeature")
+                .addQueryParameter("typeName", "twa:trajectoryUserIdByActivity")
+                .addQueryParameter("outputFormat", "application/json")
+                .addQueryParameter("viewparams", String.format(Locale.ENGLISH, "upperbound:%d;lowerbound:%d;", upperbound, lowerbound))
+                .build().toString();
+        LOGGER.info("Activity trajectory request: " + uri);
+
+        StringRequest request = new StringRequest(Request.Method.GET, uri, s -> {
+            try {
+                JSONObject response = new JSONObject(s);
+                if (response.optInt("totalFeatures", 0) == 0) {
+                    LOGGER.info("No activity trajectory found for range");
+                    onSuccessUpper.onResponse("");
+                } else {
+                    onSuccessUpper.onResponse(response.toString());
+                }
+            } catch (JSONException e) {
+                LOGGER.error("Received invalid activity trajectory from GeoServer: " + s);
+                onFailureUpper.onErrorResponse(new VolleyError("Geoserver error"));
+            }
+        }, onFailureUpper) {
+            @Override
+            public Map<String, String> getHeaders() {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Authorization", "Bearer " + accessToken);
+                return headers;
+            }
+        };
+        request.setRetryPolicy(new DefaultRetryPolicy(60000, 2, DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+        requestQueue.add(request);
+    }
+
     @NonNull
     private StringRequest buildCreateLayerRequest(String accessToken, Response.Listener<String> onSuccessUpper, Response.ErrorListener onFailureUpper, String createLayerUri, long lowerbound, long upperbound, String requestId) {
         // --- ADD: capture the moment we're about to send the createLayer request ---
@@ -99,14 +144,34 @@ public class TrajectoryNetworkSource {
             onFailureUpper.onErrorResponse(error);
         };
 
-        return new StringRequest(Request.Method.GET, createLayerUri, onCreateLayerSuccess, onCreateLayerError) {
+        LOGGER.info("[TIMING][" + requestId + "] HTTP METHOD: POST");
+        LOGGER.info("[TIMING][" + requestId + "] URL: " + createLayerUri);
+
+        StringRequest request = new StringRequest(
+                Request.Method.POST,
+                createLayerUri,
+                onCreateLayerSuccess,
+                onCreateLayerError
+        )
+        /*
+        {
             @Override
             public Map<String, String> getHeaders() {
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Authorization", "Bearer " + accessToken);
                 return headers;
             }
-        };
+        }
+        */
+                ;
+
+        request.setRetryPolicy(new DefaultRetryPolicy(
+                60000,
+                0,
+                DefaultRetryPolicy.DEFAULT_BACKOFF_MULT
+        ));
+
+        return request;
     }
 
     private StringRequest buildGetTrajectoryRequest(String accessToken, Response.Listener<String> onSuccessUpper, Response.ErrorListener onFailureUpper, JSONObject rawResponse, long lowerbound, long upperbound, String requestId) throws JSONException {
@@ -136,7 +201,7 @@ public class TrajectoryNetworkSource {
                 .addQueryParameter("service", "WFS")
                 .addQueryParameter("version", "1.0.0")
                 .addQueryParameter("request", "GetFeature")
-                .addQueryParameter("typeName", "twa:trajectoryUserIdByActivity")
+                .addQueryParameter("typeName", "on")
                 .addQueryParameter("outputFormat", "application/json")
                 .addQueryParameter("viewparams", String.format(Locale.ENGLISH, "upperbound:%d;lowerbound:%d;", upperbound, lowerbound))
                 .build().toString();

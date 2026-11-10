@@ -58,6 +58,19 @@ import org.json.JSONObject;
  * The GnssStatus callback does two jobs: diagnostics (satellites used / signal strength) and
  * driving the adaptive record rate.
  *
+ * MOCK LOCATION MODE (testing only):
+ *   Call setUseMockLocation(true) to test with a mock location app (Developer options ->
+ *   "Select mock location app"). In mock mode:
+ *     - the handler listens on every provider in MOCK_PROVIDERS (a mock app may inject into
+ *       GPS, network or fused),
+ *     - only fixes where Location.isMock() is true are accepted,
+ *     - the accuracy, stale-first-fix and stationary gates are bypassed (mock apps often send
+ *       no accuracy, a wrong elapsedRealtimeNanos, or zero speed),
+ *     - the satellite-based adaptive rate is disabled (always 3 s recording), because mock
+ *       fixes do not create real satellites,
+ *     - full-tracking GNSS measurements are not requested.
+ *   With the toggle off (default) behaviour is identical to the normal real-GPS version.
+ *
  * CHANGES vs the Google fused version:
  *   - FusedLocationProviderClient, LocationRequest (gms), LocationCallback and the one-shot
  *     getCurrentLocation() request are gone. The first fix now comes from the normal location
@@ -69,7 +82,8 @@ import org.json.JSONObject;
  *   - FUSED_PROVIDER is a platform API, so there is no gms dependency. On a stock phone it is
  *     backed by Google's location service. On a de-Googled phone it may be absent, in which case
  *     no fixes are delivered and an error is logged.
- *   - GPS_PROVIDER and the network provider are deliberately NOT used directly.
+ *   - GPS_PROVIDER and the network provider are deliberately NOT used directly (except in mock
+ *     mode).
  */
 public class LocationHandler implements SensorHandler, SensorEventListener {
     private Context context;
@@ -82,6 +96,20 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     private Logger LOGGER = Logger.getLogger(LocationHandler.class);
     private boolean isRunning = false;
     private final Object sensorDataLock = new Object(); // Lock object for synchronization
+
+    // ------------------------------------------------------------------------------------------
+    // MOCK LOCATION (testing only)
+    // ------------------------------------------------------------------------------------------
+
+    // true = accept fixes from a mock location app. Default false (real GPS).
+    private volatile boolean useMockLocation = true;
+
+    // Providers a mock app might inject into. Edit to match your mock app.
+    private static final String[] MOCK_PROVIDERS = {
+            LocationManager.GPS_PROVIDER,
+            LocationManager.FUSED_PROVIDER,
+            LocationManager.NETWORK_PROVIDER
+    };
 
     // ------------------------------------------------------------------------------------------
     // TUNING CONSTANTS
@@ -150,11 +178,53 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     private long noGnssSinceMs = 0;
 
     // ------------------------------------------------------------------------------------------
+    // MOCK TOGGLE
+    // ------------------------------------------------------------------------------------------
+
+    /**
+     * Turns mock location mode on or off. Safe to call before start() or while running; if the
+     * handler is running, the providers are re-registered for the new mode and the session state
+     * is reset.
+     *
+     * Intended for debug builds only, e.g.
+     * handler.setUseMockLocation(BuildConfig.DEBUG && prefs.getBoolean("use_mock_location", false));
+     */
+    public void setUseMockLocation(boolean enabled) {
+        if (this.useMockLocation == enabled) {
+            return;
+        }
+        this.useMockLocation = enabled;
+        LOGGER.info("LOCATION: mock mode " + (enabled ? "ON" : "OFF"));
+
+        if (isRunning) {
+            if (locationListenerRegistered) {
+                locationManager.removeUpdates(locationListener);
+                locationListenerRegistered = false;
+            }
+            synchronized (sensorDataLock) {
+                latestLocation = null;
+                lastGoodFix = null;
+            }
+            noSatsMode = false;
+            noGnssSinceMs = 0;
+            stopFullTrackingGnss();
+            if (!enabled) {
+                startFullTrackingGnss();
+            }
+            startProviderUpdates();
+        }
+    }
+
+    public boolean isUseMockLocation() {
+        return useMockLocation;
+    }
+
+    // ------------------------------------------------------------------------------------------
     // LOCATION LISTENER (platform LocationManager, no Google services)
     // ------------------------------------------------------------------------------------------
 
     /**
-     * Receives every fix from the fused provider and passes it to the common gate.
+     * Receives every fix from the registered provider(s) and passes it to the common gate.
      *
      * The empty onStatusChanged / onProviderEnabled / onProviderDisabled are required on older
      * Android versions, where these methods are abstract and a missing implementation would crash
@@ -163,7 +233,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     private final LocationListener locationListener = new LocationListener() {
         @Override
         public void onLocationChanged(@NonNull Location location) {
-            handleIncomingFix(location, "fused");
+            handleIncomingFix(location, location.getProvider());
         }
 
         @Override
@@ -203,7 +273,8 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
             // registerGnssStatusCallback in startLocationUpdates), so we are on the same thread
             // as the ticker. If satellites are back while in slow mode, leave slow mode and
             // restart the ticker right now instead of waiting out the remaining 2 minutes.
-            if (isRunning && noSatsMode && used >= MIN_SATS_USED) {
+            // (Not used in mock mode: the slow mode never engages there.)
+            if (isRunning && !useMockLocation && noSatsMode && used >= MIN_SATS_USED) {
                 noSatsMode = false;
                 noGnssSinceMs = 0;
                 LOGGER.info("LOCATION GNSS RECOVERED: satsUsed=" + used + "/" + satsVisible
@@ -214,6 +285,18 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
         }
     };
 
+    /**
+     * Speed in m/s of the latest good fix, or null if there is no fix, it is older than
+     * maxAgeMs, or the provider reported no speed. Used by the activity classifier.
+     */
+    public Float getRecentSpeedMps(long maxAgeMs) {
+        Location fix = lastGoodFix;
+        if (fix == null || !fix.hasSpeed() || fixAgeMs(fix) > maxAgeMs) {
+            return null;
+        }
+        return fix.getSpeed();
+    }
+
     /** Age of a fix in ms, on the monotonic clock (immune to wall-clock changes). */
     private long fixAgeMs(Location l) {
         return (SystemClock.elapsedRealtimeNanos() - l.getElapsedRealtimeNanos()) / 1_000_000;
@@ -222,6 +305,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     /** DIAGNOSTICS: one-line description of a fix's quality, age, and the current GNSS state. */
     private String describeFix(Location l) {
         return "provider=" + l.getProvider()
+                + " mock=" + l.isMock()
                 + " acc=" + (l.hasAccuracy() ? l.getAccuracy() : -1)
                 + " ageMs=" + fixAgeMs(l)
                 + " sats=" + satsUsed + "/" + satsVisible
@@ -239,6 +323,9 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
      * that passes becomes the new last good fix; one that fails is only logged and the previous
      * good fix stays in place.
      *
+     * In mock mode only mock fixes are accepted and the accuracy / stale / stationary gates are
+     * bypassed.
+     *
      * Safe to call from any thread.
      */
     private void handleIncomingFix(Location location, String source) {
@@ -246,8 +333,14 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
             return;
         }
 
-        boolean good = location.hasAccuracy()
-                && location.getAccuracy() <= MAX_ACCEPTABLE_ACCURACY_M;
+        // In mock mode only accept mock fixes, so real ones don't mix in.
+        if (useMockLocation && !location.isMock()) {
+            LOGGER.info("LOCATION GATE: ignoring non-mock fix from " + source);
+            return;
+        }
+
+        boolean good = useMockLocation
+                || (location.hasAccuracy() && location.getAccuracy() <= MAX_ACCEPTABLE_ACCURACY_M);
 
         String verdict;
         synchronized (sensorDataLock) {
@@ -255,9 +348,12 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
 
             if (!good) {
                 verdict = "REJECTED(accuracy)";
-            } else if (lastGoodFix == null && fixAgeMs(location) > MAX_FIRST_FIX_AGE_MS) {
+            } else if (!useMockLocation
+                    && lastGoodFix == null
+                    && fixAgeMs(location) > MAX_FIRST_FIX_AGE_MS) {
                 verdict = "REJECTED(stale first fix)";
-            } else if (satsUsed >= MIN_SATS_USED
+            } else if (!useMockLocation
+                    && satsUsed >= MIN_SATS_USED
                     && location.hasSpeed()
                     && location.getSpeed() < 0.8f
                     && lastGoodFix != null) {
@@ -313,11 +409,12 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
                     // DIAGNOSTICS: shows the raw latest fix, even if it was rejected.
                     LOGGER.info("LOCATION DIAG tick: "
                             + (rawLatest != null ? describeFix(rawLatest) : "no fix yet")
-                            + " mode=" + (noSatsMode ? "NO_SATS" : "NORMAL"));
+                            + " mode=" + (noSatsMode ? "NO_SATS" : "NORMAL")
+                            + (useMockLocation ? " (MOCK)" : ""));
 
                     if (toRecord != null) {
                         long age = fixAgeMs(toRecord);
-                        if (!noSatsMode && age > HELD_AFTER_MS) {
+                        if (!useMockLocation && !noSatsMode && age > HELD_AFTER_MS) {
                             LOGGER.warn("LOCATION: no new good fix for " + (age / 1000)
                                     + "s, re-recording last good fix");
                         }
@@ -336,11 +433,20 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
      * Switches into the slow (no satellites) mode once satellites have been missing for
      * SATS_LOST_DEBOUNCE_MS. Switching back is done by the GnssStatus callback so it is instant.
      *
+     * In mock mode the slow mode is disabled: mock fixes don't create real satellites, so the
+     * satellite count says nothing about whether the (mock) track is healthy.
+     *
      * If the GnssStatus callback is not registered (e.g. fine location permission missing) we
      * have no satellite information at all, so we stay in normal mode rather than slowing down
      * on the strength of a satsUsed value that will never update.
      */
     private void updateRecordingMode() {
+        if (useMockLocation) {
+            noSatsMode = false;
+            noGnssSinceMs = 0;
+            return;
+        }
+
         if (!gnssCallbackRegistered) {
             return;
         }
@@ -386,13 +492,14 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     }
 
     // ------------------------------------------------------------------------------------------
-    // FUSED PROVIDER
+    // PROVIDER REGISTRATION
     // ------------------------------------------------------------------------------------------
 
     /**
-     * Continuous updates from the platform fused provider at LOCATION_INTERVAL_MS (2 s): the only
-     * stream of fixes. The interval is deliberately NOT adapted to satellite visibility, so this
-     * is requested once per session and never restarted.
+     * Continuous updates at LOCATION_INTERVAL_MS (2 s). Normal mode: the platform fused provider
+     * only. Mock mode: every provider in MOCK_PROVIDERS that exists on the device. The interval
+     * is deliberately NOT adapted to satellite visibility, so this is requested once per session
+     * and never restarted (except when the mock toggle changes).
      *
      * Delivered on the main thread, the same thread as the ticker and the GnssStatus callback.
      */
@@ -407,16 +514,9 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
             return;
         }
 
-        if (!locationManager.hasProvider(LocationManager.FUSED_PROVIDER)) {
-            LOGGER.error("LOCATION: device has no fused provider, no location updates");
-            return;
-        }
-
-        if (!locationManager.isProviderEnabled(LocationManager.FUSED_PROVIDER)) {
-            // Still register: the listener starts receiving fixes as soon as the user turns
-            // location on, and onProviderEnabled() logs it.
-            LOGGER.warn("LOCATION: fused provider is currently disabled in system settings");
-        }
+        String[] providers = useMockLocation
+                ? MOCK_PROVIDERS
+                : new String[]{LocationManager.FUSED_PROVIDER};
 
         LocationRequest request = new LocationRequest.Builder(LOCATION_INTERVAL_MS)
                 .setMinUpdateIntervalMillis(LOCATION_INTERVAL_MS)
@@ -424,19 +524,40 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
                 .setQuality(LocationRequest.QUALITY_HIGH_ACCURACY)
                 .build();
 
-        try {
-            locationManager.requestLocationUpdates(
-                    LocationManager.FUSED_PROVIDER,
-                    request,
-                    ContextCompat.getMainExecutor(context),
-                    locationListener);
-            locationListenerRegistered = true;
-            LOGGER.info("LOCATION: continuous fused updates started, interval="
-                    + LOCATION_INTERVAL_MS + "ms");
-        } catch (SecurityException e) {
-            LOGGER.warn("LOCATION: could not register location listener (fine location missing?)", e);
-        } catch (IllegalArgumentException e) {
-            LOGGER.error("LOCATION: fused provider not available", e);
+        boolean anyRegistered = false;
+        for (String provider : providers) {
+            if (!locationManager.hasProvider(provider)) {
+                LOGGER.warn("LOCATION: provider not present: " + provider);
+                continue;
+            }
+
+            if (!locationManager.isProviderEnabled(provider)) {
+                // Still register: the listener starts receiving fixes as soon as the user turns
+                // location on, and onProviderEnabled() logs it.
+                LOGGER.warn("LOCATION: provider currently disabled in system settings: " + provider);
+            }
+
+            try {
+                locationManager.requestLocationUpdates(
+                        provider,
+                        request,
+                        ContextCompat.getMainExecutor(context),
+                        locationListener);
+                anyRegistered = true;
+                LOGGER.info("LOCATION: continuous updates started on " + provider
+                        + ", interval=" + LOCATION_INTERVAL_MS + "ms"
+                        + (useMockLocation ? " (MOCK MODE)" : ""));
+            } catch (SecurityException e) {
+                LOGGER.warn("LOCATION: could not register on " + provider
+                        + " (fine location missing?)", e);
+            } catch (IllegalArgumentException e) {
+                LOGGER.error("LOCATION: provider not available: " + provider, e);
+            }
+        }
+
+        locationListenerRegistered = anyRegistered;
+        if (!anyRegistered) {
+            LOGGER.error("LOCATION: no location provider could be registered, no location updates");
         }
     }
 
@@ -482,7 +603,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
         noGnssSinceMs = 0;
         noSatsMode = false; // every session starts in normal (3 s) mode
 
-        LOGGER.info("LOCATION: handler is now running");
+        LOGGER.info("LOCATION: handler is now running" + (useMockLocation ? " (MOCK MODE)" : ""));
 
         // Satellite count / signal strength. Requires ACCESS_FINE_LOCATION.
         // The callback is delivered on locationRecordHandler (main looper), the same thread as
@@ -511,10 +632,10 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
     /**
      * Asks the GNSS chip to stay fully on (no duty cycling) while we are recording, so a
      * duty-cycled chip can't leave long gaps between fixes. Platform API (31+), no Google
-     * services involved.
+     * services involved. Skipped in mock mode (no real GNSS involved).
      */
     private void startFullTrackingGnss() {
-        if (!hasFineLocationPermission() || gnssMeasurementsRegistered) {
+        if (useMockLocation || !hasFineLocationPermission() || gnssMeasurementsRegistered) {
             return;
         }
 
@@ -561,6 +682,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
         locationRecordHandler.removeCallbacks(locationRecordRunnable);
 
         if (locationListenerRegistered) {
+            // Removes the listener from every provider it was registered on.
             locationManager.removeUpdates(locationListener);
             locationListenerRegistered = false;
         }
@@ -632,6 +754,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
                 values.put("altitude", altitude);
                 values.put("speed", loc.hasSpeed() ? loc.getSpeed() : 0.0);
                 values.put("bearing", loc.hasBearing() ? loc.getBearing() : 0.0);
+                // Mock fixes may carry no accuracy; getAccuracy() returns 0.0 in that case.
                 values.put("horizontalAccuracy", loc.getAccuracy());
 
                 // Optional keys are only written when the fix has them. Ingestion should tolerate
@@ -652,6 +775,7 @@ public class LocationHandler implements SensorHandler, SensorEventListener {
                 // values.put("satsVisible", satsVisible);
                 // values.put("avgCn0", avgCn0);
                 // values.put("noSatsMode", noSatsMode);
+                // values.put("mock", useMockLocation);
 
                 locationObject.put("values", values);
                 locationData.put(locationObject);

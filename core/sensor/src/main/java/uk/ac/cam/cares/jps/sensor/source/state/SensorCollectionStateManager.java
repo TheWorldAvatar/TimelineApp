@@ -83,7 +83,18 @@ public class SensorCollectionStateManager {
         }
 
         // Load selectedSensors
-        Set<String> selectedSensorNames = sharedPreferences.getStringSet(SELECTED_SENSORS_KEY, new HashSet<>());
+        Set<String> selectedSensorNames;
+        if (sharedPreferences.contains(SELECTED_SENSORS_KEY)) {
+            selectedSensorNames = sharedPreferences.getStringSet(SELECTED_SENSORS_KEY, new HashSet<>());
+        } else {
+            // never configured for this user: default to all sensors (an explicit
+            // "all off" is saved as an empty set and is respected)
+            selectedSensorNames = new HashSet<>();
+            for (SensorType type : SensorType.values()) {
+                selectedSensorNames.add(type.name());
+            }
+            sharedPreferences.edit().putStringSet(SELECTED_SENSORS_KEY, selectedSensorNames).apply();
+        }
         List<SensorType> loadedSelectedSensors = new ArrayList<>();
         for (String sensorName : selectedSensorNames) {
             try {
@@ -293,4 +304,3 @@ public class SensorCollectionStateManager {
     }
 
 }
-

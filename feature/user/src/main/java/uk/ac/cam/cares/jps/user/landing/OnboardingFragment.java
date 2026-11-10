@@ -29,7 +29,6 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -63,7 +62,6 @@ public class OnboardingFragment extends Fragment {
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        BasicConfigurator.configure();
         binding = FragmentOnboardingBinding.inflate(inflater);
         loginViewModel = new ViewModelProvider(this).get(LoginViewModel.class);
 

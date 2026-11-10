@@ -10,7 +10,6 @@ import android.content.Intent;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
 
-import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 
@@ -38,7 +37,6 @@ public class LoginViewModel extends ViewModel {
 
     @Inject
     LoginViewModel(LoginRepository repository) {
-        BasicConfigurator.configure();
         this.repository = repository;
     }
 

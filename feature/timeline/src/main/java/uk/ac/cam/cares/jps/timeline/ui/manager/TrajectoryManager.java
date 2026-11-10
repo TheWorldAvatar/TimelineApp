@@ -1,9 +1,14 @@
 package uk.ac.cam.cares.jps.timeline.ui.manager;
 
 import android.content.Context;
+import android.content.res.ColorStateList;
 import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.Toast;
+import android.widget.TextView;
 
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.LifecycleOwner;
@@ -39,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import uk.ac.cam.cares.jps.timeline.model.trajectory.ActivityTrajectory;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectoryByDate;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
@@ -60,6 +66,18 @@ public class TrajectoryManager {
     private final List<String> layerNames = new ArrayList<>();
     private final Map<String, String> activityColors = new HashMap<>();
     private String layerId;
+    private JSONArray baseColorExpression;
+    private static final String GREYED_OUT_COLOR = "#BDBDBD";
+    private static final double SAME_SESSION_OPACITY = 0.35;
+    private static final double OTHER_SESSION_OPACITY = 0.3;
+
+    private enum ColorMode { TRIP, ACTIVITY }
+    private ColorMode colorMode = ColorMode.TRIP;
+    private TrajectoryByDate currentTrajectory;
+    private ActivityTrajectory activityTrajectory;   // activity-split data for the current date
+    private LocalDate activityFetchDate;             // date a fetch was already requested for
+    private View legendRoot;
+    private Button modeButton;
     private final RoutesViewModel routesViewModel;   // to know whether we are in route mode
     private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
     private boolean trajectoryVisible = true;
@@ -106,7 +124,7 @@ public class TrajectoryManager {
         });
     }
     */
-   // was: activityColors keyed by "walking"/"still"/"vehicle"/"bike"/"default"
+    // was: activityColors keyed by "walking"/"still"/"vehicle"/"bike"/"default"
     private final Map<String, String> tripColors = new HashMap<>();
 
     public TrajectoryManager(Fragment fragment, MapView mapView) {
@@ -115,6 +133,13 @@ public class TrajectoryManager {
         tripAgentViewModel = new ViewModelProvider(fragment).get(TripAgentViewModel.class);
         routesViewModel = new ViewModelProvider(fragment.requireActivity()).get(RoutesViewModel.class);
         this.mapView = mapView;
+
+        // colours used when the trajectory is coloured by activity
+        activityColors.put("walking", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorPrimary));
+        activityColors.put("still", getColorHex(fragment.requireContext(), R.attr.colorQuaternary));
+        activityColors.put("vehicle", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorSecondary));
+        activityColors.put("bike", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorTertiary));
+        activityColors.put("default", getColorHex(fragment.requireContext(), R.attr.colorDefault));
 
         // trip == 0 (stationary/stay segment) gets one color
         tripColors.put("0", "#FF0000");
@@ -127,18 +152,55 @@ public class TrajectoryManager {
         fragment.requireView().findViewById(R.id.run_trip_agent_button)
                 .setOnClickListener(v -> tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue()));
 
+        // toggle between colouring by trips/visits and colouring by activity
+        legendRoot = fragment.requireView();
+        modeButton = fragment.requireView().findViewById(R.id.trajectory_mode_button);
+        updateModeUi();
+        // activity-split data arrives separately, only when Activity mode needs it
+        trajectoryViewModel.activityTrajectory.observe(fragment.getViewLifecycleOwner(), data -> {
+            if (data == null || currentTrajectory == null || !data.getDate().equals(currentTrajectory.getDate())) {
+                return;
+            }
+            activityTrajectory = data;
+            if (colorMode == ColorMode.ACTIVITY) {
+                mapView.getMapboxMap().getStyle(this::paintCurrentTrajectory);
+            }
+        });
+        trajectoryViewModel.activityTrajectoryError.observe(fragment.getViewLifecycleOwner(), error -> {
+            if (error == null) {
+                return;
+            }
+            activityFetchDate = null;
+            if (colorMode == ColorMode.ACTIVITY) {
+                colorMode = ColorMode.TRIP;
+                updateModeUi();
+                Toast.makeText(mapView.getContext(), "Could not load activity data", Toast.LENGTH_SHORT).show();
+                mapView.getMapboxMap().getStyle(this::paintCurrentTrajectory);
+            }
+        });
+
+        modeButton.setOnClickListener(v -> {
+            colorMode = colorMode == ColorMode.TRIP ? ColorMode.ACTIVITY : ColorMode.TRIP;
+            updateModeUi();
+            trajectoryViewModel.removeAllClicked();   // clears highlight and fading, which belong to the old paint
+            if (currentTrajectory != null) {
+                mapView.getMapboxMap().getStyle(this::paintCurrentTrajectory);
+            }
+        });
+
         trajectoryViewModel.trajectory.observe(fragment.getViewLifecycleOwner(), trajectoryByDate -> {
             trajectoryViewModel.removeAllClicked();
             if (!trajectoryByDate.getDate().equals(normalBottomSheetViewModel.selectedDate.getValue())) {
                 trajectoryViewModel.setFetching(true);
                 return;
             }
+            currentTrajectory = trajectoryByDate;
+            activityTrajectory = null;
+            activityFetchDate = null;
 
             mapView.getMapboxMap().getStyle(style -> {
-                removeAllLayers(style);
+                paintCurrentTrajectory(style);
                 if (!trajectoryByDate.getTrajectoryStr().isEmpty()) {
-                    paintTrajectoryByUserId(style, trajectoryByDate, tripColors, "default");
-                    applyTrajectoryVisibility(style);
                     addTrajectoryClickListener(mapView, selectedColor, fragment.getViewLifecycleOwner());
                 }
             });
@@ -181,6 +243,11 @@ public class TrajectoryManager {
             if (routesViewModel.isRouteMode()) {
                 return false;
             }
+            // The activity data has different segment ids from the trips data, so segment
+            // selection is only available in the trips view.
+            if (colorMode == ColorMode.ACTIVITY) {
+                return false;
+            }
             Log.d("TrajectoryClick", "Map clicked at: " + point.longitude() + ", " + point.latitude());
 
             ScreenCoordinate screenPoint = mapView.getMapboxMap().pixelForCoordinate(point);
@@ -216,11 +283,142 @@ public class TrajectoryManager {
 
         trajectoryViewModel.clickedSegment.observe(lifecycleOwner, clickedSegment -> {
             removeHighlightLayer(mapView.getMapboxMap().getStyle());
+            updateSessionGreyOut(mapView.getMapboxMap().getStyle(), clickedSegment);
             if (clickedSegment != null) {
                 highlightTrajectorySegment(mapView.getMapboxMap().getStyle(), clickedSegment, selectedColor);
                 resetCameraCentre(mapView, clickedSegment.getBbox());
             }
         });
+    }
+
+    /**
+     * Logs which activity_type values the trajectory data contains. Segments whose value is not
+     * one of walking/still/vehicle/bike are drawn in the default grey.
+     */
+    private void logActivityTypes(String trajectory) {
+        try {
+            JSONArray features = new JSONObject(trajectory).getJSONArray("features");
+            Map<String, Integer> counts = new HashMap<>();
+            for (int i = 0; i < features.length(); i++) {
+                JSONObject props = features.getJSONObject(i).optJSONObject("properties");
+                String type = props == null ? "<no properties>" : props.optString("activity_type", "<missing>");
+                counts.merge(type, 1, Integer::sum);
+            }
+            LOGGER.info("Activity colouring: activity_type values in data = " + counts);
+        } catch (JSONException e) {
+            LOGGER.warn("Could not read activity types from trajectory data", e);
+        }
+    }
+
+    /** Repaints the current day's trajectory in the selected colour mode. */
+    private void paintCurrentTrajectory(Style style) {
+        removeAllLayers(style);
+        if (currentTrajectory == null || currentTrajectory.getTrajectoryStr().isEmpty()) {
+            return;
+        }
+        if (colorMode == ColorMode.ACTIVITY) {
+            // The trips layer has no activity_type, so activity colouring uses its own data.
+            LocalDate date = currentTrajectory.getDate();
+            if (activityTrajectory != null && date.equals(activityTrajectory.getDate())
+                    && !activityTrajectory.getGeojson().isEmpty()) {
+                paintTrajectoryByActivity(style, activityTrajectory.getGeojson(), activityColors, "default");
+            } else {
+                // not loaded yet (or no activity data): keep showing the trips colouring
+                paintTrajectoryByUserId(style, currentTrajectory, tripColors, "default");
+                if (activityTrajectory == null && !date.equals(activityFetchDate)) {
+                    activityFetchDate = date;
+                    trajectoryViewModel.getActivityTrajectory(date);
+                }
+            }
+        } else {
+            paintTrajectoryByUserId(style, currentTrajectory, tripColors, "default");
+        }
+        applyTrajectoryVisibility(style);
+    }
+
+    /** Updates the toggle button text and the legend to match the colour mode. */
+    private void updateModeUi() {
+        boolean activity = colorMode == ColorMode.ACTIVITY;
+        modeButton.setText(activity ? R.string.trajectory_mode_activity : R.string.trajectory_mode_trips);
+
+        String[] labels = activity
+                ? new String[]{"Walking", "Still", "Vehicle", "Bike"}
+                : new String[]{"Visit", "Trip", "", ""};
+        String[] colors = activity
+                ? new String[]{activityColors.get("walking"), activityColors.get("still"),
+                activityColors.get("vehicle"), activityColors.get("bike")}
+                : new String[]{tripColors.get("0"), tripColors.get("default"), null, null};
+        // the card grows when it shows two lines, lift it a little so it stays clear of the sheet
+        View legendCard = legendRoot.findViewById(R.id.legend_card);
+        if (legendCard != null) {
+            float density = legendRoot.getResources().getDisplayMetrics().density;
+            legendCard.setTranslationY((activity ? -122 : -108) * density);
+        }
+        int[] rows = {R.id.legend_row_1, R.id.legend_row_2, R.id.legend_row_3, R.id.legend_row_4};
+        int[] swatches = {R.id.legend_swatch_1, R.id.legend_swatch_2, R.id.legend_swatch_3, R.id.legend_swatch_4};
+        int[] texts = {R.id.legend_text_1, R.id.legend_text_2, R.id.legend_text_3, R.id.legend_text_4};
+        for (int i = 0; i < rows.length; i++) {
+            View row = legendRoot.findViewById(rows[i]);
+            if (colors[i] == null) {
+                row.setVisibility(View.GONE);
+                continue;
+            }
+            row.setVisibility(View.VISIBLE);
+            legendRoot.findViewById(swatches[i]).setBackgroundTintList(
+                    ColorStateList.valueOf(Color.parseColor(colors[i])));
+            ((TextView) legendRoot.findViewById(texts[i])).setText(labels[i]);
+        }
+    }
+
+    /**
+     * Fades every segment except the selected one: other segments of the same session keep
+     * their colour but fade; segments of other sessions turn grey and fade.
+     * The selected segment is drawn on top. Passing null restores the normal look.
+     */
+    private void updateSessionGreyOut(Style style, TrajectorySegment clickedSegment) {
+        if (style == null || layerId == null || baseColorExpression == null
+                || !style.styleLayerExists(layerId)) {
+            return;
+        }
+        try {
+            Object colorValue = baseColorExpression;
+            Object opacityValue = 1.0;
+            Object sortKeyValue = 0;
+            if (clickedSegment != null && clickedSegment.getSessionId() != null) {
+                JSONArray sameSession = new JSONArray().put("==")
+                        .put(new JSONArray().put("get").put("session_id"))
+                        .put(clickedSegment.getSessionId());
+                JSONArray selected = new JSONArray().put("all")
+                        .put(sameSession)
+                        .put(new JSONArray().put("==")
+                                .put(new JSONArray().put("get").put("id"))
+                                .put(clickedSegment.getId()));
+                colorValue = new JSONArray().put("case").put(sameSession)
+                        .put(baseColorExpression).put(GREYED_OUT_COLOR);
+                opacityValue = new JSONArray().put("case")
+                        .put(selected).put(1.0)
+                        .put(sameSession).put(SAME_SESSION_OPACITY)
+                        .put(OTHER_SESSION_OPACITY);
+                sortKeyValue = new JSONArray().put("case")
+                        .put(selected).put(2)
+                        .put(sameSession).put(1)
+                        .put(0);
+            }
+            setLayerProperty(style, "line-color", colorValue);
+            setLayerProperty(style, "line-opacity", opacityValue);
+            setLayerProperty(style, "line-sort-key", sortKeyValue);
+        } catch (Exception e) {
+            LOGGER.error("Error fading segments", e);
+        }
+    }
+
+    private void setLayerProperty(Style style, String property, Object value) {
+        Expected<String, None> result = style.setStyleLayerProperty(
+                layerId, property,
+                Objects.requireNonNull(Value.fromJson(String.valueOf(value)).getValue()));
+        if (result.isError()) {
+            LOGGER.error("Failed to set " + property + ": " + result.getError());
+        }
     }
 
     private void removeHighlightLayer(Style style) {
@@ -272,8 +470,8 @@ public class TrajectoryManager {
     /**
      * Paints the trajectory on the map, ensuring each segment gets a unique ID.
      */
-    private void paintTrajectoryByActivity(Style style, TrajectoryByDate trajectoryArr, Map<String, String> activityColors, String mode) {
-        String trajectory = trajectoryArr.getTrajectoryStr();
+    private void paintTrajectoryByActivity(Style style, String trajectory, Map<String, String> activityColors, String mode) {
+        logActivityTypes(trajectory);
         JSONObject sourceJson = new JSONObject();
         try {
             sourceJson.put("type", "geojson");
@@ -312,6 +510,7 @@ public class TrajectoryManager {
 
 
             colorExpression.put(activityColors.get("default"));
+            baseColorExpression = colorExpression;
 
             JSONObject paint = new JSONObject();
             paint.put("line-color", colorExpression);
@@ -373,6 +572,7 @@ public class TrajectoryManager {
             }
 
             colorExpression.put(tripColors.get("default"));
+            baseColorExpression = colorExpression;
 
             JSONObject paint = new JSONObject();
             paint.put("line-color", colorExpression);

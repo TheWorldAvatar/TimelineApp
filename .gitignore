@@ -18,14 +18,11 @@ local.properties
 
 /feature/routing
 /feature/locationtracking
-/core/utils/network_config*
-/core/utils/developer_config
 /core/utils/build
 /core/ui/build
 /core/data/build
 /core/model/build
 /core/login/build
-/core/login/src/main/res/raw/auth_config_*
 /core/network/build
 /core/sensor/build
 /feature/user/build
@@ -34,6 +31,9 @@ local.properties
 
 
 *.png
-core/utils/src/main/res/values/developer_config.xml
-core/utils/src/main/res/values/developer_config.xml
-core/utils/src/main/res/values/developer_config.xml
+
+# Local configuration files - do not commit
+
+/core/login/src/main/res/raw/auth_config.json
+/core/utils/src/main/res/values/developer_config.xml
+/core/utils/src/main/res/values/network_config.xml

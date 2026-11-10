@@ -20,6 +20,7 @@ import java.util.Objects;
 import javax.inject.Inject;
 
 import dagger.hilt.android.lifecycle.HiltViewModel;
+import uk.ac.cam.cares.jps.timeline.model.trajectory.ActivityTrajectory;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectoryByDate;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.utils.RepositoryCallback;
@@ -42,12 +43,37 @@ public class TrajectoryViewModel extends ViewModel implements SegmentClickInterf
     public LiveData<Boolean> isFetchingTrajectory = _isFetchingTrajectory;
     public LiveData<TrajectorySegment> clickedSegment = _clickedSegment;
 
+    private final MutableLiveData<ActivityTrajectory> _activityTrajectory = new MutableLiveData<>();
+    private final MutableLiveData<Throwable> _activityTrajectoryError = new MutableLiveData<>();
+    public LiveData<ActivityTrajectory> activityTrajectory = _activityTrajectory;
+    public LiveData<Throwable> activityTrajectoryError = _activityTrajectoryError;
+
     private static final Logger LOGGER = Logger.getLogger(String.valueOf(TrajectoryViewModel.class));
 
 
     @Inject
     public TrajectoryViewModel(TrajectoryRepository routeRepository) {
         this.trajectoryRepository = routeRepository;
+    }
+
+    /** Loads the activity-split trajectory used to colour the map by activity. */
+    public void getActivityTrajectory(LocalDate date) {
+        long lowerbound = calculateLowerbound(date);
+        long upperbound = calculateUpperbound(date);
+
+        trajectoryRepository.getActivityTrajectory(lowerbound, upperbound, new RepositoryCallback<>() {
+            @Override
+            public void onSuccess(String result) {
+                _activityTrajectoryError.postValue(null);
+                _activityTrajectory.postValue(new ActivityTrajectory(date, result));
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                LOGGER.error("Failed to get activity trajectory", error);
+                _activityTrajectoryError.postValue(error);
+            }
+        });
     }
 
     public void getTrajectory(LocalDate date) {

@@ -99,7 +99,7 @@ public class SensorRepository {
         context.stopService(serviceIntent);
         sensorCollectionStateManagerRepository.setRecordingState(false);
         sensorCollectionStateManagerRepository.setTaskId("");
-        sensorCollectionStateManagerRepository.setSelectedSensors(new ArrayList<>());
+        // keep the saved sensor selection so the user's toggles persist after stopping
     }
 
 

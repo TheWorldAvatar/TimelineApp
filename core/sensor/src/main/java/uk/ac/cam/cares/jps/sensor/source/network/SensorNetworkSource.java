@@ -86,7 +86,9 @@ public class SensorNetworkSource {
 
         try (Response response = httpClient.newCall(request).execute()) {
             if (response.isSuccessful()) {
-                LOGGER.info("Upload succeeded: " + response.code());
+                String responseBody = response.body() != null ? response.body().string() : "";
+                LOGGER.info("Upload succeeded: " + response.code() + ", messageId " + (messageId - 1)
+                        + ", server response: " + (responseBody.length() > 500 ? responseBody.substring(0, 500) + "..." : responseBody));
                 return true;
             } else if (response.code() == 401) {
                 LOGGER.warn("Upload rejected: invalid/expired token — forcing refresh next attempt");

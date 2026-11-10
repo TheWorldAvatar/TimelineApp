@@ -233,9 +233,8 @@
     <string name="auto_delete_on_off_option">Choose an auto-delete option</string>
     <string name="auto_delete_on_off_description">Automatically delete old location data after a chosen period</string>
     
-    <string name="awaiting_approval_title">Awaiting approval</string>
-    <string name="awaiting_approval_message">Your account has been created but has not been approved yet. Please contact the app administrator, then sign in again once you have been approved.</string>
-
-
+    <string name="awaiting_approval_title">Account not approved</string>
+    <string name="awaiting_approval_message">The account you signed in with has not been approved to use this app. You can sign in with a different account, or contact the app administrator to get this one approved.</string>
+    <string name="awaiting_approval_retry">Sign in with another account</string>
 
 </resources>

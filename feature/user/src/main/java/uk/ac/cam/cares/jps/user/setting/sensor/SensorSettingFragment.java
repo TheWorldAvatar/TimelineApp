@@ -134,6 +134,18 @@ public class SensorSettingFragment extends Fragment {
         adapter.updateSensorItems(sensorViewModel.getSensorItems());
         adapter.notifyDataSetChanged();
 
+        // keep the switches in sync with the saved selection, which loads asynchronously
+        // and can also be changed from the Timeline screen
+        sensorViewModel.getSelectedSensors().observe(getViewLifecycleOwner(), selected -> {
+            if (selected == null) {
+                return;
+            }
+            for (SensorItem item : sensorViewModel.getSensorItems()) {
+                item.setToggled(selected.contains(item.getSensorType()));
+            }
+            adapter.notifyDataSetChanged();
+        });
+
         sensorViewModel.getAllToggledOn().observe(getViewLifecycleOwner(), this::updateToggleAllState);
     }
 

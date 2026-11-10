@@ -3,7 +3,6 @@ package uk.ac.cam.cares.jps.user.viewmodel;
 
 import androidx.lifecycle.LiveData;
 
-import org.apache.log4j.BasicConfigurator;
 import org.apache.log4j.LogManager;
 
 import java.util.ArrayList;
@@ -46,7 +45,6 @@ public class SensorViewModel extends RecordingViewModel {
             RecordingState recordingState
     ) {
         super();
-        BasicConfigurator.configure();
 
         this.sensorRepository = repository;
         this.sensorCollectionStateManagerRepository = sensorCollectionStateManagerRepository;
@@ -99,6 +97,9 @@ public class SensorViewModel extends RecordingViewModel {
         }
 
         recordingState.setSelectedSensors(currentSelectedSensors);
+        recordingState.setAllToggledOn(currentSelectedSensors.size() == sensorItems.size());
+        // persist so the toggle survives stopping recording and app restarts
+        saveSelectedSensors(currentSelectedSensors);
     }
 
     @Override
@@ -170,4 +171,3 @@ public class SensorViewModel extends RecordingViewModel {
 
 
 }
- 
