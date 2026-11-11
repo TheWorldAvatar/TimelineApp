@@ -29,6 +29,10 @@ public class NormalBottomSheetViewModel extends ViewModel {
     public LiveData<LocalDate> selectedDate = _selectedDate;
     public LiveData<Map<YearMonthCompositeKey, List<Integer>>> datesWithTrajectory = _datesWithTrajectory;
 
+    // NEW: set when every retry of getDatesWithData has failed, so the UI can tell the user
+    private final MutableLiveData<Throwable> _datesError = new MutableLiveData<>();
+    public LiveData<Throwable> datesError = _datesError;
+
     /**
      * Constructor of the class. Instantiation is done with ViewProvider and dependency injection
      *
@@ -72,14 +76,21 @@ public class NormalBottomSheetViewModel extends ViewModel {
         datesWithTrajectoryRepository.getDatesWithTrajectory(timezone, new RepositoryCallback<>() {
             @Override
             public void onSuccess(Map<YearMonthCompositeKey, List<Integer>> result) {
+                _datesError.postValue(null);
                 _datesWithTrajectory.postValue(result);
             }
 
             @Override
             public void onFailure(Throwable error) {
-                // do nothing for now
+                // CHANGED: was "do nothing for now"
+                _datesError.postValue(error);
             }
         });
+    }
+
+    /** Call after the error has been shown so it is not shown again when the view is recreated. */
+    public void clearDatesError() {
+        _datesError.setValue(null);
     }
 
     /**

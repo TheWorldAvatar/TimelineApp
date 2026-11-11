@@ -462,7 +462,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:textSize="13sp"
-                        android:text="Bike" />
+                        android:text="Bicycle" />
                 </LinearLayout>
             </LinearLayout>
         </LinearLayout>
@@ -481,9 +481,25 @@
         app:layout_anchor="@id/bottom_sheet_container"
         app:layout_anchorGravity="top|end" />
 
+    <!--
     <com.google.android.material.button.MaterialButton
         android:id="@+id/trajectory_mode_button"
         android:visibility="gone"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="16dp"
+        android:translationY="-152dp"
+        android:text="@string/trajectory_mode_trips"
+        app:backgroundTint="@color/fab_idle"
+        android:textColor="@android:color/white"
+        app:cornerRadius="4dp"
+        app:elevation="6dp"
+        app:layout_anchor="@id/bottom_sheet_container"
+        app:layout_anchorGravity="top|end" />
+    -->
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/trajectory_mode_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="16dp"
