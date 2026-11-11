@@ -40,7 +40,9 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -134,12 +136,11 @@ public class TrajectoryManager {
         routesViewModel = new ViewModelProvider(fragment.requireActivity()).get(RoutesViewModel.class);
         this.mapView = mapView;
 
-        // colours used when the trajectory is coloured by activity
-        activityColors.put("walking", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorPrimary));
-        activityColors.put("still", getColorHex(fragment.requireContext(), R.attr.colorQuaternary));
-        activityColors.put("vehicle", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorSecondary));
-        activityColors.put("bike", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorTertiary));
-        activityColors.put("default", getColorHex(fragment.requireContext(), R.attr.colorDefault));
+        activityColors.put("walking", "#22A06B");
+        activityColors.put("still", "#8B929C");
+        activityColors.put("vehicle", "#3977D5");
+        activityColors.put("bike", "#E99A27");
+        activityColors.put("default", "#B0BEC5");
 
         // trip == 0 (stationary/stay segment) gets one color
         tripColors.put("0", "#FF0000");
@@ -292,22 +293,131 @@ public class TrajectoryManager {
     }
 
     /**
-     * Logs which activity_type values the trajectory data contains. Segments whose value is not
-     * one of walking/still/vehicle/bike are drawn in the default grey.
+     * Adds the dominant activity from activity_proportions when the layer has no flat
+     * activity_type property, then logs the values used for map colouring.
      */
-    private void logActivityTypes(String trajectory) {
+    private String normalizeActivityTypes(String trajectory) {
         try {
-            JSONArray features = new JSONObject(trajectory).getJSONArray("features");
+            JSONObject geojson = new JSONObject(trajectory);
+            JSONArray features = geojson.getJSONArray("features");
             Map<String, Integer> counts = new HashMap<>();
+            Map<String, Integer> propertyKeyCounts = new HashMap<>();
+            Map<String, Integer> proportionKeyCounts = new HashMap<>();
+            Map<String, Integer> directActivityTypes = new HashMap<>();
+            Map<String, Integer> proportionValueTypes = new HashMap<>();
             for (int i = 0; i < features.length(); i++) {
-                JSONObject props = features.getJSONObject(i).optJSONObject("properties");
-                String type = props == null ? "<no properties>" : props.optString("activity_type", "<missing>");
+                JSONObject properties = features.getJSONObject(i).optJSONObject("properties");
+                if (properties == null) {
+                    counts.merge("<no properties>", 1, Integer::sum);
+                    continue;
+                }
+
+                Iterator<String> propertyKeys = properties.keys();
+                while (propertyKeys.hasNext()) {
+                    propertyKeyCounts.merge(propertyKeys.next(), 1, Integer::sum);
+                }
+
+                Object rawActivityType = getValueIgnoreCase(properties, "activity_type");
+                String type = rawActivityType == null || rawActivityType == JSONObject.NULL
+                        ? ""
+                        : rawActivityType.toString().trim().toLowerCase(Locale.ROOT);
+                if (!type.isEmpty()) {
+                    directActivityTypes.merge(type, 1, Integer::sum);
+                }
+                if (type.isEmpty() || type.equals("unknown") || type.equals("null")) {
+                    Object rawProportions = getValueIgnoreCase(properties, "activity_proportions");
+                    if (rawProportions != null && rawProportions != JSONObject.NULL) {
+                        proportionValueTypes.merge(rawProportions.getClass().getSimpleName(), 1, Integer::sum);
+                    }
+                    JSONObject proportions = parseActivityProportions(rawProportions);
+                    if (proportions != null) {
+                        Iterator<String> proportionKeys = proportions.keys();
+                        while (proportionKeys.hasNext()) {
+                            proportionKeyCounts.merge(proportionKeys.next(), 1, Integer::sum);
+                        }
+                    }
+                    type = getDominantActivityType(proportions);
+                    if (type != null) {
+                        properties.put("activity_type", type);
+                    } else {
+                        type = "<missing>";
+                    }
+                } else {
+                    properties.put("activity_type", type);
+                }
                 counts.merge(type, 1, Integer::sum);
             }
             LOGGER.info("Activity colouring: activity_type values in data = " + counts);
+            LOGGER.info("Activity GeoJSON schema: propertyKeys=" + propertyKeyCounts
+                    + ", directActivityTypes=" + directActivityTypes
+                    + ", proportionKeys=" + proportionKeyCounts
+                    + ", proportionValueTypes=" + proportionValueTypes);
+            return geojson.toString();
         } catch (JSONException e) {
-            LOGGER.warn("Could not read activity types from trajectory data", e);
+            LOGGER.error("Could not normalize activity types in trajectory data", e);
+            return trajectory;
         }
+    }
+
+    private Object getValueIgnoreCase(JSONObject object, String key) {
+        Iterator<String> keys = object.keys();
+        while (keys.hasNext()) {
+            String actualKey = keys.next();
+            if (actualKey.equalsIgnoreCase(key)) {
+                return object.opt(actualKey);
+            }
+        }
+        return null;
+    }
+
+    private JSONObject parseActivityProportions(Object rawProportions) {
+        if (rawProportions instanceof JSONObject) {
+            return (JSONObject) rawProportions;
+        }
+        if (rawProportions instanceof String) {
+            try {
+                return new JSONObject((String) rawProportions);
+            } catch (JSONException e) {
+                LOGGER.warn("Could not parse activity_proportions JSON string", e);
+            }
+        }
+        return null;
+    }
+
+    private String getDominantActivityType(JSONObject proportions) {
+        if (proportions == null) {
+            return null;
+        }
+
+        String dominantType = null;
+        double largestProportion = 0;
+        Iterator<String> activityTypes = proportions.keys();
+        while (activityTypes.hasNext()) {
+            String rawActivityType = activityTypes.next();
+            String activityType = rawActivityType.trim().toLowerCase(Locale.ROOT);
+            Object value = proportions.opt(rawActivityType);
+            double proportion;
+            if (value instanceof Number) {
+                proportion = ((Number) value).doubleValue();
+            } else if (value instanceof String) {
+                try {
+                    proportion = Double.parseDouble((String) value);
+                } catch (NumberFormatException e) {
+                    LOGGER.warn("Invalid proportion for activity type " + activityType + ": " + value, e);
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            if (activityColors.containsKey(activityType)
+                    && !Double.isNaN(proportion) && !Double.isInfinite(proportion)
+                    && proportion > largestProportion) {
+                largestProportion = proportion;
+                dominantType = activityType;
+            }
+        }
+        return dominantType;
     }
 
     /** Repaints the current day's trajectory in the selected colour mode. */
@@ -342,7 +452,7 @@ public class TrajectoryManager {
         modeButton.setText(activity ? R.string.trajectory_mode_activity : R.string.trajectory_mode_trips);
 
         String[] labels = activity
-                ? new String[]{"Walking", "Still", "Vehicle", "Bike"}
+                ? new String[]{"Walking", "Still", "Vehicle", "Bicycle"}
                 : new String[]{"Visit", "Trip", "", ""};
         String[] colors = activity
                 ? new String[]{activityColors.get("walking"), activityColors.get("still"),
@@ -471,7 +581,7 @@ public class TrajectoryManager {
      * Paints the trajectory on the map, ensuring each segment gets a unique ID.
      */
     private void paintTrajectoryByActivity(Style style, String trajectory, Map<String, String> activityColors, String mode) {
-        logActivityTypes(trajectory);
+        trajectory = normalizeActivityTypes(trajectory);
         JSONObject sourceJson = new JSONObject();
         try {
             sourceJson.put("type", "geojson");

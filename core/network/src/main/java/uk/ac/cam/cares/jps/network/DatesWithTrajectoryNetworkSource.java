@@ -4,6 +4,7 @@ import android.content.Context;
 
 import com.android.volley.RequestQueue;
 import com.android.volley.Response;
+import com.android.volley.VolleyError;
 import com.android.volley.toolbox.JsonObjectRequest;
 import com.android.volley.toolbox.JsonRequest;
 import com.android.volley.toolbox.StringRequest;
@@ -73,8 +74,12 @@ public class DatesWithTrajectoryNetworkSource {
                             stringToDates(jo.getString("days")));
                 }
                 onSuccessUpper.onResponse(datesWithTrajectory);
-            } catch (JSONException e) {
-                throw new RuntimeException(e);
+            } catch (JSONException | NumberFormatException e) {
+                // CHANGED: was `throw new RuntimeException(e)`, which crashed the app. A body that
+                // is not the expected JSON (e.g. an nginx / Cloudflare error page) is now reported
+                // through the normal failure callback so the repository can retry and surface it.
+                LOGGER.error("Unexpected getDatesWithData response: " + s, e);
+                onFailureUpper.onErrorResponse(new VolleyError("Malformed getDatesWithData response", e));
             }
         }, onFailureUpper) {
             @Override

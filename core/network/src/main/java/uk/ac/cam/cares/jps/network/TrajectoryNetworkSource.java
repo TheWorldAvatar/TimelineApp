@@ -67,10 +67,11 @@ public class TrajectoryNetworkSource {
     }
 
     /**
-     * Gets the trajectory split by activity (layer trajectoryUserIdByActivity). Its features carry
-     * activity_type, which the trips layer used by getTrajectory() does not. The layers are
-     * created by the createLayer call that getTrajectory() already makes, so this is a single
-     * WFS request. The success callback receives "" when there is no data for the range.
+     * Gets the activity trajectory (layer trajectoryUserIdByActivity). Its features carry
+     * activity_proportions, which the trips layer used by getTrajectory() does not. The map uses
+     * these proportions to derive a dominant activity for colouring. The
+     * 5-use-materialized-view branch creates this layer through /createLayer. The success callback
+     * receives "" when there is no data for the range.
      */
     public void getActivityTrajectory(String accessToken, long lowerbound, long upperbound,
                                       Response.Listener<String> onSuccessUpper,

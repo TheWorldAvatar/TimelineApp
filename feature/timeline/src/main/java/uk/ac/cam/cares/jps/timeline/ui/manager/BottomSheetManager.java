@@ -12,6 +12,7 @@ import android.view.ViewConfiguration;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.core.widget.NestedScrollView;
@@ -283,40 +284,109 @@ public class BottomSheetManager {
         }
     }
 
+    // Keys the agent adds purely for presentation; they are never data.
+    private static boolean isControlKey(String key) {
+        return key.equals("collapse") || key.equals("display_order");
+    }
+
+    // Strict match for a whole distance label such as "400 m" or "1.5 km". It is deliberately
+    // strict so that time-range labels like "2026-10-30 10:00 – ..." or filter keys like
+    // "year=2021" are never mistaken for a distance.
+    private static final Pattern STRICT_DISTANCE_KEY =
+            Pattern.compile("^\\s*\\d+(?:\\.\\d+)?\\s*(?:km|m)\\s*$", Pattern.CASE_INSENSITIVE);
+
     /**
-     * CHANGED (replaces renderDatasetBody): turns one dataset into table data.
-     *
-     * Columns are the calculation types (sorted by name so the order is stable, because
-     * JSONObject.keys() has no guaranteed order). Rows are the union of distances over all
-     * calculations, sorted ascending by numeric distance. A calculation with no value at a
-     * given distance shows a dash instead of leaving a hole.
+     * One value from the agent response together with the chain of JSON keys leading to it,
+     * e.g. path = ["year=2021", "height=h1", "Mean GVI", "400 m"], value = "0.4200".
      */
-    private ResultPage parseDataset(String dataset, JSONObject calcs) throws JSONException {
-        List<String> calcNames = new ArrayList<>();
-        Iterator<String> calcKeys = calcs.keys();
-        while (calcKeys.hasNext()) {
-            String calc = calcKeys.next();
-            if (calc.equals("collapse") || calc.equals("display_order")) continue;
-            if (calcs.optJSONObject(calc) != null) calcNames.add(calc);
+    private static final class Leaf {
+        final List<String> path;
+        final String value;
+
+        Leaf(List<String> path, String value) {
+            this.path = path;
+            this.value = value;
         }
+    }
+
+    /**
+     * NEW: walks the response tree to any depth and collects every value. The agent now nests
+     * results as  dataset > [filters like year=...] > [column groups like year=/height=] >
+     * calculation > distance > [time range] > value, and the number of levels differs per
+     * dataset, so the app must not assume a fixed depth.
+     */
+    private void collectLeaves(JSONObject node, List<String> path, List<Leaf> out) {
+        Iterator<String> keys = node.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (isControlKey(key)) continue;            // skip "collapse" / "display_order"
+            Object child = node.opt(key);
+            if (child == null || child == JSONObject.NULL || child instanceof JSONArray) continue;
+
+            List<String> next = new ArrayList<>(path);
+            next.add(key);
+            if (child instanceof JSONObject) {
+                collectLeaves((JSONObject) child, next, out);
+            } else {
+                out.add(new Leaf(next, String.valueOf(child)));
+            }
+        }
+    }
+
+    /**
+     * CHANGED: turns one dataset into table data, whatever the nesting depth.
+     *
+     * For every value, the first key in its path that looks like a distance ("400 m") or is "-"
+     * (no distance) becomes the ROW. Everything before it (filters, year/height groups and the
+     * calculation name) becomes the COLUMN title, one part per line. Anything after it (a
+     * time-range label) is ignored.
+     * Rows are sorted ascending by distance; a missing combination shows a dash.
+     */
+    private ResultPage parseDataset(String dataset, JSONObject root) throws JSONException {
+        List<Leaf> leaves = new ArrayList<>();
+        collectLeaves(root, new ArrayList<>(), leaves);
+
+        // entries[i] = {column title, row label, value}
+        List<String[]> entries = new ArrayList<>();
+        for (Leaf leaf : leaves) {
+            int distanceIdx = -1;
+            for (int i = 0; i < leaf.path.size(); i++) {
+                String key = leaf.path.get(i);
+                if (key.equals("-") || STRICT_DISTANCE_KEY.matcher(key).matches()) {
+                    distanceIdx = i;
+                    break;
+                }
+            }
+
+            String column;
+            String row;
+            if (distanceIdx < 0) {                       // no distance level at all
+                column = String.join("\n", leaf.path);
+                row = "-";
+            } else {
+                column = String.join("\n", leaf.path.subList(0, distanceIdx));
+                row = leaf.path.get(distanceIdx);
+                // any keys after the distance (time-range labels) are intentionally not shown
+            }
+            if (column.isEmpty()) column = dataset;      // value sits directly under the distance
+            entries.add(new String[]{column, row, cleanValue(leaf.value)});
+        }
+
+        // stable, de-duplicated column order
+        List<String> calcNames = new ArrayList<>();
+        for (String[] e : entries) if (!calcNames.contains(e[0])) calcNames.add(e[0]);
         calcNames.sort(String.CASE_INSENSITIVE_ORDER);
 
         Map<String, String[]> valuesByDistance = new HashMap<>();
-        for (int c = 0; c < calcNames.size(); c++) {
-            JSONObject values = calcs.getJSONObject(calcNames.get(c));
-            Iterator<String> distanceKeys = values.keys();
-            while (distanceKeys.hasNext()) {
-                String distanceKey = distanceKeys.next();
-                if (distanceKey.equals("collapse") || distanceKey.equals("display_order")) continue;
-
-                String[] cells = valuesByDistance.get(distanceKey);
-                if (cells == null) {
-                    cells = new String[calcNames.size()];
-                    Arrays.fill(cells, EMPTY_CELL);
-                    valuesByDistance.put(distanceKey, cells);
-                }
-                cells[c] = cleanValue(extractDistanceValue(values, distanceKey));
+        for (String[] e : entries) {
+            String[] cells = valuesByDistance.get(e[1]);
+            if (cells == null) {
+                cells = new String[calcNames.size()];
+                Arrays.fill(cells, EMPTY_CELL);
+                valuesByDistance.put(e[1], cells);
             }
+            int col = calcNames.indexOf(e[0]);
+            if (cells[col].equals(EMPTY_CELL)) cells[col] = e[2];   // several time ranges: keep the first
         }
 
         List<String> distances = new ArrayList<>(valuesByDistance.keySet());
@@ -326,29 +396,6 @@ public class BottomSheetManager {
         for (String distance : distances) rows.add(valuesByDistance.get(distance));
 
         return new ResultPage(dataset, calcNames, distances, rows);
-    }
-
-    /**
-     * Reads the value stored under one distance key, tolerating both shapes:
-     *   "400 m": "1200 m²"                       (plain string)
-     *   "400 m": { "<time range>": "1200 m²" }   (nested by time range)
-     */
-    private String extractDistanceValue(JSONObject values, String distanceKey) throws JSONException {
-        Object raw = values.get(distanceKey);
-        if (raw instanceof JSONObject) {
-            return extractValue((JSONObject) raw);
-        }
-        return String.valueOf(raw);
-    }
-
-    private String extractValue(JSONObject byTimeRange) throws JSONException {
-        Iterator<String> keys = byTimeRange.keys();
-        while (keys.hasNext()) {
-            String key = keys.next();
-            if (key.equals("collapse")) continue;
-            return byTimeRange.getString(key);   // the time-range label itself, if you want it later, is `key`
-        }
-        return "";
     }
 
     /**
@@ -467,8 +514,14 @@ public class BottomSheetManager {
         normalBottomSheet.getBottomSheet().findViewById(R.id.date_right_bt).setOnClickListener(view ->
                 normalBottomSheetViewModel.setToNextDate());
 
-        normalBottomSheet.getBottomSheet().findViewById(R.id.date_picker_layout).setOnClickListener(view ->
-                getDatePicker(normalBottomSheetViewModel).show(fragmentManager, "date_picker"));
+        normalBottomSheet.getBottomSheet().findViewById(R.id.date_picker_layout).setOnClickListener(view -> {
+            // NEW: if the dates never loaded, try again now (a no-op while a request is already running
+            // or when today's result is cached)
+            if (normalBottomSheetViewModel.datesWithTrajectory.getValue() == null) {
+                normalBottomSheetViewModel.getDatesWithTrajectory(currentUtcOffsetId());
+            }
+            getDatePicker(normalBottomSheetViewModel).show(fragmentManager, "date_picker");
+        });
 
         normalBottomSheetViewModel.selectedDate.observe(lifecycleOwner, selectedDate -> {
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("E, MMMM dd, yyyy");
@@ -476,7 +529,18 @@ public class BottomSheetManager {
             connectionViewModel.checkNetworkConnection();
         });
         normalBottomSheetViewModel.datesWithTrajectory.observe(lifecycleOwner, dates -> greyOutDecorator.setDatesWithTrajectory(dates));
-        normalBottomSheetViewModel.getDatesWithTrajectory(ZonedDateTime.now(ZoneId.systemDefault()).toOffsetDateTime().getOffset().getId());
+        // NEW: tell the user (and log) when every retry has failed, instead of silently doing nothing
+        normalBottomSheetViewModel.datesError.observe(lifecycleOwner, error -> {
+            if (error == null) return;
+            LOGGER.error("Could not load dates with data", error);
+            Toast.makeText(context, "Couldn't load dates with data. Will retry next time.", Toast.LENGTH_LONG).show();
+            normalBottomSheetViewModel.clearDatesError();
+        });
+        normalBottomSheetViewModel.getDatesWithTrajectory(currentUtcOffsetId());
+    }
+
+    private String currentUtcOffsetId() {
+        return ZoneId.systemDefault().getId();
     }
 
     private MaterialDatePicker<Long> getDatePicker(NormalBottomSheetViewModel normalBottomSheetViewModel) {
