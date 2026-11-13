@@ -126,4 +126,15 @@
     <action android:id="@+id/action_global_exposure_setting"
         app:destination="@id/exposure_setting" />
 
+    <!-- NEW: Display Options screen (Trips & visits / Activity map colouring) -->
+    <fragment
+        android:id="@+id/display_options"
+        android:name="uk.ac.cam.cares.jps.user.setting.DisplayOptionsFragment"
+        tools:layout="@layout/fragment_display_options">
+        <deepLink app:uri="@string/display_options_link" />
+    </fragment>
+
+    <action android:id="@+id/action_global_display_options"
+        app:destination="@id/display_options" />
+
 </navigation>

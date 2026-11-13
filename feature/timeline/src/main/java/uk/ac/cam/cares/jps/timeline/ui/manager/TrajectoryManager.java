@@ -6,7 +6,6 @@ import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
 import android.widget.Toast;
 import android.widget.TextView;
 
@@ -51,6 +50,7 @@ import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectoryByDate;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.TrajectoryViewModel;
+import uk.ac.cam.cares.jps.ui.impl.viewmodel.DisplayOptionsViewModel;   // CHANGE: ADD import (lives in core:ui-impl)
 import uk.ac.cam.cares.jps.timeline.viewmodel.RoutesViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
@@ -79,7 +79,8 @@ public class TrajectoryManager {
     private ActivityTrajectory activityTrajectory;   // activity-split data for the current date
     private LocalDate activityFetchDate;             // date a fetch was already requested for
     private View legendRoot;
-    private Button modeButton;
+    // CHANGE: the map button is gone, the choice now comes from the Display Options screen through this ViewModel
+    private final DisplayOptionsViewModel displayOptionsViewModel;
     private final RoutesViewModel routesViewModel;   // to know whether we are in route mode
     private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
     private boolean trajectoryVisible = true;
@@ -134,6 +135,8 @@ public class TrajectoryManager {
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
         tripAgentViewModel = new ViewModelProvider(fragment).get(TripAgentViewModel.class);
         routesViewModel = new ViewModelProvider(fragment.requireActivity()).get(RoutesViewModel.class);
+        // CHANGE: activity-scoped, so it is the same instance DisplayOptionsFragment writes to
+        displayOptionsViewModel = new ViewModelProvider(fragment.requireActivity()).get(DisplayOptionsViewModel.class);
         this.mapView = mapView;
 
         activityColors.put("walking", "#22A06B");
@@ -153,9 +156,10 @@ public class TrajectoryManager {
         fragment.requireView().findViewById(R.id.run_trip_agent_button)
                 .setOnClickListener(v -> tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue()));
 
-        // toggle between colouring by trips/visits and colouring by activity
+        // colouring by trips/visits or by activity, chosen on the Display Options screen
         legendRoot = fragment.requireView();
-        modeButton = fragment.requireView().findViewById(R.id.trajectory_mode_button);
+        // start from whatever was already chosen (the ViewModel outlives this manager)
+        colorMode = toColorMode(displayOptionsViewModel.getTrajectoryView());
         updateModeUi();
         // activity-split data arrives separately, only when Activity mode needs it
         trajectoryViewModel.activityTrajectory.observe(fragment.getViewLifecycleOwner(), data -> {
@@ -173,15 +177,20 @@ public class TrajectoryManager {
             }
             activityFetchDate = null;
             if (colorMode == ColorMode.ACTIVITY) {
-                colorMode = ColorMode.TRIP;
-                updateModeUi();
                 Toast.makeText(mapView.getContext(), "Could not load activity data", Toast.LENGTH_SHORT).show();
-                mapView.getMapboxMap().getStyle(this::paintCurrentTrajectory);
+                // CHANGE: fall back through the ViewModel so the toggle on the Display Options screen shows Trips & visits
+                // again too. The observer below then switches the mode, legend and repaints the map.
+                displayOptionsViewModel.setTrajectoryView(DisplayOptionsViewModel.TrajectoryView.TRIPS_AND_VISITS);
             }
         });
 
-        modeButton.setOnClickListener(v -> {
-            colorMode = colorMode == ColorMode.TRIP ? ColorMode.ACTIVITY : ColorMode.TRIP;
+        // CHANGE: replaces modeButton.setOnClickListener. Reacts to the choice made on the Display Options screen.
+        displayOptionsViewModel.trajectoryView.observe(fragment.getViewLifecycleOwner(), view -> {
+            ColorMode newMode = toColorMode(view);
+            if (newMode == colorMode) {
+                return;   // first emission, or nothing actually changed
+            }
+            colorMode = newMode;
             updateModeUi();
             trajectoryViewModel.removeAllClicked();   // clears highlight and fading, which belong to the old paint
             if (currentTrajectory != null) {
@@ -446,10 +455,14 @@ public class TrajectoryManager {
         applyTrajectoryVisibility(style);
     }
 
-    /** Updates the toggle button text and the legend to match the colour mode. */
+    /** Maps the shared ViewModel's choice onto this class's colour mode. */
+    private static ColorMode toColorMode(DisplayOptionsViewModel.TrajectoryView view) {
+        return view == DisplayOptionsViewModel.TrajectoryView.ACTIVITY ? ColorMode.ACTIVITY : ColorMode.TRIP;
+    }
+
+    /** Updates the legend to match the colour mode. (The toggle itself now lives on the Display Options screen.) */
     private void updateModeUi() {
         boolean activity = colorMode == ColorMode.ACTIVITY;
-        modeButton.setText(activity ? R.string.trajectory_mode_activity : R.string.trajectory_mode_trips);
 
         String[] labels = activity
                 ? new String[]{"Walking", "Still", "Vehicle", "Bicycle"}

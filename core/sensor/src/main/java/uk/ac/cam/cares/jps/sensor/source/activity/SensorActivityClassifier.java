@@ -47,6 +47,15 @@ import uk.ac.cam.cares.jps.sensor.source.handler.LocationHandler;
 public class SensorActivityClassifier implements SensorEventListener {
 
     // ---- timing -----------------------------------------------------------------------------
+    /**
+     * TEMPORARY TESTING SWITCH. true = classify purely from GPS/mock speed (ignores accelerometer and
+     * step data), for emulator testing. Set to false for real-device use to restore the normal classifier.
+     */
+    public static final boolean SPEED_ONLY_MODE = true;
+    private static final double SPEED_ONLY_STILL_MAX = 0.3;   // m/s (~1 km/h), below = still
+    private static final double SPEED_ONLY_WALK_MAX = 2.8;    // m/s (~10 km/h), below = walking
+    private static final double SPEED_ONLY_BIKE_MAX = 7.0;    // m/s (~25 km/h), below = bike, above = vehicle
+
     private static final long WINDOW_MS = 5_000;
     private static final int SMOOTHING_WINDOWS = 3;
     private static final long MAX_SPEED_AGE_MS = 10_000;
@@ -223,6 +232,10 @@ public class SensorActivityClassifier implements SensorEventListener {
     // ------------------------------------------------------------------------------------------
 
     private void finishWindow(long now) {
+        if (SPEED_ONLY_MODE) {
+            finishWindowSpeedOnly(now);
+            return;
+        }
         if (sampleCount < MIN_SAMPLES_PER_WINDOW) {
             LOGGER.info("ACTIVITY window skipped: only " + sampleCount + " accelerometer samples");
             return;
@@ -251,6 +264,24 @@ public class SensorActivityClassifier implements SensorEventListener {
     }
 
     /** Rule based classification of a single window. */
+    /** TEMPORARY: classify from speed alone; no sample-count check, smoothing or confidence scaling. */
+    private void finishWindowSpeedOnly(long now) {
+        Float speed = locationHandler != null ? locationHandler.getRecentSpeedMps(MAX_SPEED_AGE_MS) : null;
+        String label;
+        if (speed == null || speed < SPEED_ONLY_STILL_MAX) {
+            label = "still";
+        } else if (speed < SPEED_ONLY_WALK_MAX) {
+            label = "walking";
+        } else if (speed < SPEED_ONLY_BIKE_MAX) {
+            label = "bike";
+        } else {
+            label = "vehicle";
+        }
+        LOGGER.info("ACTIVITY (speed-only) speed=" + (speed == null ? "n/a" : String.format("%.2f", speed))
+                + " -> " + label);
+        publish(new Result(label, 90), now);
+    }
+
     private Result classify(double sigma, double cadence, Float speed) {
         boolean stepping = cadence >= STEP_CADENCE_MIN;
         boolean running = cadence >= RUNNING_CADENCE_MIN;

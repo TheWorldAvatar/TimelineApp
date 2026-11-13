@@ -106,6 +106,12 @@ public class UserDialogFragment extends DialogFragment {
         });
 
         // setupMapModeToggle();   // CHANGE 4a of 4: ADD call
+
+        // CHANGE (display options): ADD. Opens the Display Options screen, like the exposure row above.
+        binding.displayOptionsSetting.setOnClickListener(v -> {
+            dismiss();
+            navigate(uk.ac.cam.cares.jps.utils.R.string.display_options_link);
+        });
     }
 
     // CHANGE 4b of 4: ADD method. The Recording | Routes selector.
