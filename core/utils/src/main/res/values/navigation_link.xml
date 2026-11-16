@@ -8,5 +8,6 @@
     <string name="timeline_setting_link">android-app://uk.ac.cam.cares.jps.app/timeline-setting</string>
     <string name="account_setting_link">android-app://uk.ac.cam.cares.jps.app/account-setting</string>
     <string name="exposure_setting_link">android-app://uk.ac.cam.cares.jps.app/exposure-setting</string>
+    <string name="display_options_link">android-app://uk.ac.cam.cares.jps.app/display-options</string>
 
 </resources>

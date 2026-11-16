@@ -481,36 +481,7 @@
         app:layout_anchor="@id/bottom_sheet_container"
         app:layout_anchorGravity="top|end" />
 
-    <!--
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/trajectory_mode_button"
-        android:visibility="gone"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="16dp"
-        android:translationY="-152dp"
-        android:text="@string/trajectory_mode_trips"
-        app:backgroundTint="@color/fab_idle"
-        android:textColor="@android:color/white"
-        app:cornerRadius="4dp"
-        app:elevation="6dp"
-        app:layout_anchor="@id/bottom_sheet_container"
-        app:layout_anchorGravity="top|end" />
-    -->
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/trajectory_mode_button"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="16dp"
-        android:translationY="-152dp"
-        android:text="@string/trajectory_mode_trips"
-        app:backgroundTint="@color/fab_idle"
-        android:textColor="@android:color/white"
-        app:cornerRadius="4dp"
-        app:elevation="6dp"
-        app:layout_anchor="@id/bottom_sheet_container"
-        app:layout_anchorGravity="top|end" />
+    <!-- CHANGE: the Trips & visits / Activity map button was removed; it is now on the Display Options screen (profile dialog -> Display Options) -->
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/dataset_layer_button"
