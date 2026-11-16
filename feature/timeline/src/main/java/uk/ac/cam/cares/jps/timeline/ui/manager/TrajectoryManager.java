@@ -85,6 +85,12 @@ public class TrajectoryManager {
     private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
     private boolean trajectoryVisible = true;
     private final TripAgentViewModel tripAgentViewModel;
+    private static final String HIGHLIGHT_SOURCE = "highlight_source";
+    private static final double ACTIVITY_FADE_OPACITY = 0.3;     // other activity segments while one is selected
+    private static final double MATCH_TOLERANCE = 0.0001;         // ~11 m; activity points sit on the trips geometry
+    private String activityGeojsonPainted;                        // normalised GeoJSON currently in the activity layer
+    private boolean paintedActivity = false;   // true while the map shows the activity layer (not the trips layer)
+    private String selectedColor;
 
 
     /**
@@ -151,6 +157,7 @@ public class TrajectoryManager {
         tripColors.put("default", "#008000");
 
         String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
+        this.selectedColor = selectedColor;
 
         // TrajectoryManager's click listener — back to just passing the date
         fragment.requireView().findViewById(R.id.run_trip_agent_button)
@@ -168,7 +175,10 @@ public class TrajectoryManager {
             }
             activityTrajectory = data;
             if (colorMode == ColorMode.ACTIVITY) {
-                mapView.getMapboxMap().getStyle(this::paintCurrentTrajectory);
+                mapView.getMapboxMap().getStyle(style -> {
+                    paintCurrentTrajectory(style);
+                    applySelection(style, trajectoryViewModel.clickedSegment.getValue());
+                });
             }
         });
         trajectoryViewModel.activityTrajectoryError.observe(fragment.getViewLifecycleOwner(), error -> {
@@ -253,11 +263,6 @@ public class TrajectoryManager {
             if (routesViewModel.isRouteMode()) {
                 return false;
             }
-            // The activity data has different segment ids from the trips data, so segment
-            // selection is only available in the trips view.
-            if (colorMode == ColorMode.ACTIVITY) {
-                return false;
-            }
             Log.d("TrajectoryClick", "Map clicked at: " + point.longitude() + ", " + point.latitude());
 
             ScreenCoordinate screenPoint = mapView.getMapboxMap().pixelForCoordinate(point);
@@ -273,6 +278,18 @@ public class TrajectoryManager {
                         if (result.getValue() != null && !result.getValue().isEmpty()) {
                             QueriedFeature clickedFeature = result.getValue().get(0).getQueriedFeature();
                             Feature feature = clickedFeature.getFeature();
+
+                            if (paintedActivity) {
+                                // Activity features have their own ids, so map the tap onto the trips
+                                // segment the bottom sheet knows about and select that one.
+                                TrajectorySegment tripSegment = resolveTripSegment(feature, point);
+                                if (tripSegment != null) {
+                                    trajectoryViewModel.setClickedSegment(tripSegment.getId(), tripSegment.getSessionId());
+                                } else {
+                                    trajectoryViewModel.setClickedSegment(null, null);
+                                }
+                                return;
+                            }
 
                             Integer segmentId = feature.hasProperty("id") ? feature.getNumberProperty("id").intValue() : null;
                             String sessionId = feature.hasProperty("session_id") ? feature.getStringProperty("session_id") : null;
@@ -292,13 +309,267 @@ public class TrajectoryManager {
         });
 
         trajectoryViewModel.clickedSegment.observe(lifecycleOwner, clickedSegment -> {
-            removeHighlightLayer(mapView.getMapboxMap().getStyle());
-            updateSessionGreyOut(mapView.getMapboxMap().getStyle(), clickedSegment);
+            applySelection(mapView.getMapboxMap().getStyle(), clickedSegment);
             if (clickedSegment != null) {
-                highlightTrajectorySegment(mapView.getMapboxMap().getStyle(), clickedSegment, selectedColor);
                 resetCameraCentre(mapView, clickedSegment.getBbox());
             }
         });
+    }
+
+    /** Shows the selection on the map, in whichever layer (trips or activity) is currently painted. */
+    private void applySelection(Style style, TrajectorySegment segment) {
+        if (style == null) {
+            return;
+        }
+        removeHighlightLayer(style);
+        if (paintedActivity) {
+            showSelectedActivityPieces(style, segment);
+        } else {
+            updateSessionGreyOut(style, segment);
+            if (segment != null) {
+                highlightTrajectorySegment(style, segment, selectedColor);
+            }
+        }
+    }
+
+    /**
+     * Activity features have no ids that match the trips data, so a tap on the activity layer is
+     * resolved to a trips segment. If the tapped feature carries start_time/end_time, only trips
+     * segments that overlap that time range are considered; the one whose geometry passes closest
+     * to the tap wins. Without times it is purely the closest geometry.
+     */
+    private TrajectorySegment resolveTripSegment(Feature feature, Point tap) {
+        if (currentTrajectory == null) {
+            return null;
+        }
+        List<TrajectorySegment> candidates = new ArrayList<>(currentTrajectory.getTrajectorySegments());
+        Long start = readLongProperty(feature, "start_time");
+        Long end = readLongProperty(feature, "end_time");
+        if (start != null && end != null && end > start) {
+            List<TrajectorySegment> overlapping = new ArrayList<>();
+            for (TrajectorySegment segment : candidates) {
+                if (Math.min(end, segment.getEndTime()) > Math.max(start, segment.getStartTime())) {
+                    overlapping.add(segment);
+                }
+            }
+            if (!overlapping.isEmpty()) {
+                candidates = overlapping;
+            }
+        }
+
+        double cosLat = Math.cos(Math.toRadians(tap.latitude()));
+        TrajectorySegment best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (TrajectorySegment segment : candidates) {
+            double distance = distanceToGeometry(segment.getGeom(), tap.longitude(), tap.latitude(), cosLat);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = segment;
+            }
+        }
+        return best;
+    }
+
+    private Long readLongProperty(Feature feature, String key) {
+        try {
+            if (feature.hasProperty(key)) {
+                return feature.getNumberProperty(key).longValue();
+            }
+        } catch (RuntimeException e) {
+            LOGGER.debug("Property " + key + " is not numeric on the tapped feature");
+        }
+        return null;
+    }
+
+    /** Distance from a point to a GeoJSON LineString/MultiLineString/Point, in degrees (longitude scaled by cosLat). */
+    private double distanceToGeometry(JSONObject geom, double lng, double lat, double cosLat) {
+        if (geom == null) {
+            return Double.MAX_VALUE;
+        }
+        try {
+            String type = geom.optString("type");
+            JSONArray coordinates = geom.getJSONArray("coordinates");
+            if ("LineString".equals(type)) {
+                return distanceToLine(coordinates, lng, lat, cosLat);
+            }
+            if ("MultiLineString".equals(type)) {
+                double best = Double.MAX_VALUE;
+                for (int i = 0; i < coordinates.length(); i++) {
+                    best = Math.min(best, distanceToLine(coordinates.getJSONArray(i), lng, lat, cosLat));
+                }
+                return best;
+            }
+            if ("Point".equals(type)) {
+                return Math.hypot(coordinates.getDouble(0) * cosLat - lng * cosLat, coordinates.getDouble(1) - lat);
+            }
+        } catch (JSONException e) {
+            LOGGER.debug("Could not read segment geometry for tap matching");
+        }
+        return Double.MAX_VALUE;
+    }
+
+    private double distanceToLine(JSONArray line, double lng, double lat, double cosLat) throws JSONException {
+        double px = lng * cosLat;
+        double best = Double.MAX_VALUE;
+        for (int i = 0; i < line.length(); i++) {
+            JSONArray a = line.getJSONArray(i);
+            double ax = a.getDouble(0) * cosLat;
+            double ay = a.getDouble(1);
+            if (i + 1 < line.length()) {
+                JSONArray b = line.getJSONArray(i + 1);
+                best = Math.min(best, distanceToSegment(px, lat, ax, ay, b.getDouble(0) * cosLat, b.getDouble(1)));
+            } else if (line.length() == 1) {
+                best = Math.hypot(px - ax, lat - ay);
+            }
+        }
+        return best;
+    }
+
+    private double distanceToSegment(double px, double py, double ax, double ay, double bx, double by) {
+        double dx = bx - ax;
+        double dy = by - ay;
+        double lengthSquared = dx * dx + dy * dy;
+        double t = lengthSquared == 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared));
+        return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    }
+
+    /**
+     * Activity mode selection: fade the whole activity layer and draw only the activity pieces that belong
+     * to the selected trips segment on top at full opacity, with the normal activity colours (no highlight
+     * colour). If no piece can be matched, nothing is faded so the map never ends up all faded.
+     */
+    private void showSelectedActivityPieces(Style style, TrajectorySegment segment) {
+        if (layerId == null || !style.styleLayerExists(layerId)) {
+            return;
+        }
+        if (segment == null) {
+            setLayerProperty(style, "line-opacity", 1.0);
+            return;
+        }
+        JSONArray pieces = selectActivityPieces(segment);
+        if (pieces.length() == 0) {
+            setLayerProperty(style, "line-opacity", 1.0);
+            return;
+        }
+        try {
+            JSONObject collection = new JSONObject().put("type", "FeatureCollection").put("features", pieces);
+            JSONObject sourceJson = new JSONObject().put("type", "geojson").put("data", collection.toString());
+            style.addStyleSource(HIGHLIGHT_SOURCE, Objects.requireNonNull(Value.fromJson(sourceJson.toString()).getValue()));
+
+            JSONObject layerJson = new JSONObject()
+                    .put("id", "highlight_layer")
+                    .put("type", "line")
+                    .put("source", HIGHLIGHT_SOURCE)
+                    .put("paint", new JSONObject().put("line-color", baseColorExpression).put("line-width", 6));
+            style.addStyleLayer(Objects.requireNonNull(Value.fromJson(layerJson.toString()).getValue()),
+                    new LayerPosition(null, null, null));
+            setLayerProperty(style, "line-opacity", ACTIVITY_FADE_OPACITY);
+        } catch (JSONException e) {
+            LOGGER.error("Error showing selected activity pieces", e);
+        }
+    }
+
+    /**
+     * Picks the painted activity features that belong to a trips segment: by time overlap when the features
+     * carry start_time/end_time, otherwise (or if that matches nothing) by lying on the segment's geometry.
+     */
+    private JSONArray selectActivityPieces(TrajectorySegment segment) {
+        JSONArray byTime = new JSONArray();
+        JSONArray byGeometry = new JSONArray();
+        if (activityGeojsonPainted == null) {
+            return byTime;
+        }
+        try {
+            JSONArray features = new JSONObject(activityGeojsonPainted).optJSONArray("features");
+            if (features == null) {
+                return byTime;
+            }
+            double cosLat = 1.0;
+            double[] first = firstVertex(segment.getGeom());
+            if (first != null) {
+                cosLat = Math.cos(Math.toRadians(first[1]));
+            }
+            for (int i = 0; i < features.length(); i++) {
+                JSONObject feature = features.getJSONObject(i);
+                JSONObject props = feature.optJSONObject("properties");
+                if (props != null) {
+                    long start = props.optLong("start_time", 0);
+                    long end = props.optLong("end_time", 0);
+                    if (start > 0 && end > start
+                            && Math.min(end, segment.getEndTime()) > Math.max(start, segment.getStartTime())) {
+                        byTime.put(feature);
+                    }
+                }
+                if (liesOnGeometry(feature.optJSONObject("geometry"), segment.getGeom(), cosLat)) {
+                    byGeometry.put(feature);
+                }
+            }
+        } catch (JSONException e) {
+            LOGGER.error("Could not match activity pieces to the selected segment", e);
+        }
+        return byTime.length() > 0 ? byTime : byGeometry;
+    }
+
+    /** True if at least two of a feature's first/middle/last vertices lie within MATCH_TOLERANCE of the geometry. */
+    private boolean liesOnGeometry(JSONObject featureGeom, JSONObject segmentGeom, double cosLat) throws JSONException {
+        List<double[]> vertices = flattenVertices(featureGeom);
+        if (vertices.isEmpty() || segmentGeom == null) {
+            return false;
+        }
+        int[] samples = {0, vertices.size() / 2, vertices.size() - 1};
+        int near = 0;
+        int counted = 0;
+        int last = -1;
+        for (int index : samples) {
+            if (index == last) {
+                continue;   // short features: do not count the same vertex twice
+            }
+            last = index;
+            counted++;
+            double[] v = vertices.get(index);
+            if (distanceToGeometry(segmentGeom, v[0], v[1], cosLat) <= MATCH_TOLERANCE) {
+                near++;
+            }
+        }
+        return near >= Math.min(2, counted);
+    }
+
+    private List<double[]> flattenVertices(JSONObject geom) throws JSONException {
+        List<double[]> out = new ArrayList<>();
+        if (geom == null) {
+            return out;
+        }
+        String type = geom.optString("type");
+        JSONArray coordinates = geom.optJSONArray("coordinates");
+        if (coordinates == null) {
+            return out;
+        }
+        if ("LineString".equals(type)) {
+            for (int i = 0; i < coordinates.length(); i++) {
+                JSONArray c = coordinates.getJSONArray(i);
+                out.add(new double[]{c.getDouble(0), c.getDouble(1)});
+            }
+        } else if ("MultiLineString".equals(type)) {
+            for (int p = 0; p < coordinates.length(); p++) {
+                JSONArray part = coordinates.getJSONArray(p);
+                for (int i = 0; i < part.length(); i++) {
+                    JSONArray c = part.getJSONArray(i);
+                    out.add(new double[]{c.getDouble(0), c.getDouble(1)});
+                }
+            }
+        } else if ("Point".equals(type)) {
+            out.add(new double[]{coordinates.getDouble(0), coordinates.getDouble(1)});
+        }
+        return out;
+    }
+
+    private double[] firstVertex(JSONObject geom) {
+        try {
+            List<double[]> vertices = flattenVertices(geom);
+            return vertices.isEmpty() ? null : vertices.get(0);
+        } catch (JSONException e) {
+            return null;
+        }
     }
 
     /**
@@ -432,6 +703,7 @@ public class TrajectoryManager {
     /** Repaints the current day's trajectory in the selected colour mode. */
     private void paintCurrentTrajectory(Style style) {
         removeAllLayers(style);
+        paintedActivity = false;
         if (currentTrajectory == null || currentTrajectory.getTrajectoryStr().isEmpty()) {
             return;
         }
@@ -441,6 +713,7 @@ public class TrajectoryManager {
             if (activityTrajectory != null && date.equals(activityTrajectory.getDate())
                     && !activityTrajectory.getGeojson().isEmpty()) {
                 paintTrajectoryByActivity(style, activityTrajectory.getGeojson(), activityColors, "default");
+                paintedActivity = true;
             } else {
                 // not loaded yet (or no activity data): keep showing the trips colouring
                 paintTrajectoryByUserId(style, currentTrajectory, tripColors, "default");
@@ -545,8 +818,14 @@ public class TrajectoryManager {
     }
 
     private void removeHighlightLayer(Style style) {
-        if (style != null && style.styleLayerExists("highlight_layer")) {
+        if (style == null) {
+            return;
+        }
+        if (style.styleLayerExists("highlight_layer")) {
             style.removeStyleLayer("highlight_layer");
+        }
+        if (style.styleSourceExists(HIGHLIGHT_SOURCE)) {
+            style.removeStyleSource(HIGHLIGHT_SOURCE);
         }
     }
 
@@ -595,6 +874,7 @@ public class TrajectoryManager {
      */
     private void paintTrajectoryByActivity(Style style, String trajectory, Map<String, String> activityColors, String mode) {
         trajectory = normalizeActivityTypes(trajectory);
+        activityGeojsonPainted = trajectory;
         JSONObject sourceJson = new JSONObject();
         try {
             sourceJson.put("type", "geojson");
@@ -756,10 +1036,7 @@ public class TrajectoryManager {
             List<String> failureLayers = new ArrayList<>();
             List<String> failureSources = new ArrayList<>();
 
-            if (style.styleLayerExists("highlight_layer")) {
-                style.removeStyleLayer("highlight_layer");
-                LOGGER.debug("Removed highlight_layer");
-            }
+            removeHighlightLayer(style);
 
             for (String name : layerNames) {
                 String layerName = "trajectory_layer_" + name;
