@@ -28,7 +28,7 @@ import uk.ac.cam.cares.jps.sensor.source.handler.LocationHandler;
  * Classifies the user's activity from the phone's own sensors, with NO Google Play services.
  *
  * Labels are the same ones the rest of the app already uses: "still", "walking", "bike",
- * "vehicle" and "others". Every result is stored with a rough confidence (0-100).
+ * "vehicle" and "lost_signal" (moving, but no GPS speed and no steps to say how). Every result is stored with a rough confidence (0-100).
  *
  * Every WINDOW_MS the classifier looks at three features:
  *   - motion intensity: standard deviation of the accelerometer magnitude (gravity cancels out)
@@ -296,7 +296,7 @@ public class SensorActivityClassifier implements SensorEventListener {
             if (v < SPEED_WALK_MAX) {
                 if (stepping) return new Result("walking", 90);    // steps AND walking speed
                 if (sigma >= BUMPY_SIGMA) return new Result("bike", 50);
-                return new Result("others", 40);                   // slow, no steps: GPS drift or crawling traffic
+                return new Result("walking", 60);                  // slow but above the still threshold, no steps detected
             }
             if (v < SPEED_RUN_MAX && stepping && running) {
                 return new Result("walking", 65);                  // running; the app has no separate label
@@ -313,7 +313,7 @@ public class SensorActivityClassifier implements SensorEventListener {
         // no recent speed: accelerometer / steps only, so confidence is capped lower
         if (stepping) return new Result("walking", 70);
         if (sigma < STILL_SIGMA) return new Result("still", 65);
-        return new Result("others", 35);
+        return new Result("lost_signal", 65);   // moving, but no GPS speed and no steps: cannot tell how
     }
 
     /**
