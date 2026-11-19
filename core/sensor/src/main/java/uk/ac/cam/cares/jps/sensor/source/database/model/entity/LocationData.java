@@ -121,7 +121,7 @@ public class LocationData extends SensorData {
             values.put("verticalAccuracy", this.verticalAccuracy != null ? this.verticalAccuracy : JSONObject.NULL);
 
             json.put("values", values);
-            json.put("time", this.time);
+            json.put("time", this.timeNanosRoundedToMillis());
 
         } catch (JSONException e) {
             e.printStackTrace();

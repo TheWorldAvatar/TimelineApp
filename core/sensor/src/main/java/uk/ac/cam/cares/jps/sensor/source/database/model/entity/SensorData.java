@@ -37,6 +37,15 @@ public abstract class SensorData {
         }
     }
 
+    /**
+     * Returns the timestamp for upload: the stored time rounded to the nearest millisecond,
+     * still expressed in nanoseconds (i.e. always a multiple of 1,000,000).
+     * Use this instead of {@link #time} when building the payload in {@link #toJson()}.
+     */
+    public long timeNanosRoundedToMillis() {
+        return Math.round(time / 1_000_000.0) * 1_000_000L;
+    }
+
     public abstract String toJSONString();
 
     /**

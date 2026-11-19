@@ -43,14 +43,14 @@ public class ExposureCalculationAgentRepository {
                                         String distance = (distancePref == null || distancePref.isEmpty()) ? DEFAULT_DISTANCE : distancePref;
 
                                         networkSource.triggerCalculation(accessToken, rdfType, distance, datasetIri, lowerbound, upperbound,
-                                                callback::onSuccess,
+                                                queuedResponse -> awaitJob(accessToken, queuedResponse, callback),
                                                 error -> callback.onFailure(new Exception("Failed to trigger exposure calculation", error)));
                                     }
 
                                     @Override
                                     public void onFailure(Throwable error) {
                                         networkSource.triggerCalculation(accessToken, rdfType, DEFAULT_DISTANCE, datasetIri, lowerbound, upperbound,
-                                                callback::onSuccess,
+                                                queuedResponse -> awaitJob(accessToken, queuedResponse, callback),
                                                 e -> callback.onFailure(new Exception("Failed to trigger exposure calculation", e)));
                                     }
                                 });
@@ -75,5 +75,24 @@ public class ExposureCalculationAgentRepository {
                 callback.onFailure(new Exception("Failed to fetch access token", error));
             }
         });
+    }
+
+    /** The agent answers 202 once the job is queued; report success only after the job has finished. */
+    private void awaitJob(String accessToken, String queuedResponse, RepositoryCallback<String> callback) {
+        JobPoller.awaitCompletion(queuedResponse,
+                fetchCallback -> networkSource.getActiveJobs(accessToken,
+                        fetchCallback::onSuccess,
+                        e -> fetchCallback.onFailure(e)),
+                new RepositoryCallback<>() {
+                    @Override
+                    public void onSuccess(Void unused) {
+                        callback.onSuccess(queuedResponse);
+                    }
+
+                    @Override
+                    public void onFailure(Throwable error) {
+                        callback.onFailure(new Exception("Failed while waiting for exposure calculation", error));
+                    }
+                });
     }
 }

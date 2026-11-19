@@ -164,6 +164,9 @@ public class TrajectoryManager {
         fragment.requireView().findViewById(R.id.run_trip_agent_button)
                 .setOnClickListener(v -> tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue()));
 
+        // run the trip agent and then the exposure calculation every 5 minutes while this screen is visible
+        new AutoTripRunner(fragment.getViewLifecycleOwner(), tripAgentViewModel, normalBottomSheetViewModel);
+
         // colouring by trips/visits or by activity, chosen on the Display Options screen
         legendRoot = fragment.requireView();
         // start from whatever was already chosen (the ViewModel outlives this manager)

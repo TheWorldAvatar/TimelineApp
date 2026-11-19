@@ -58,7 +58,7 @@ public class SoundLevel extends SensorData {
             values.put("dBFS", this.dBFS);
 
             json.put("values", values);
-            json.put("time", this.time);
+            json.put("time", this.timeNanosRoundedToMillis());
         } catch (JSONException e) {
             e.printStackTrace();
         }
