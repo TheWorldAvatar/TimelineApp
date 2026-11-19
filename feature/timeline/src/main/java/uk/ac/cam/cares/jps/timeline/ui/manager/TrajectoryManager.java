@@ -149,6 +149,7 @@ public class TrajectoryManager {
         activityColors.put("still", "#8B929C");
         activityColors.put("vehicle", "#3977D5");
         activityColors.put("bike", "#E99A27");
+        activityColors.put("lost_signal", "#E53935");
         activityColors.put("default", "#B0BEC5");
 
         // trip == 0 (stationary/stay segment) gets one color
@@ -162,6 +163,9 @@ public class TrajectoryManager {
         // TrajectoryManager's click listener — back to just passing the date
         fragment.requireView().findViewById(R.id.run_trip_agent_button)
                 .setOnClickListener(v -> tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue()));
+
+        // run the trip agent and then the exposure calculation every 5 minutes while this screen is visible
+        new AutoTripRunner(fragment.getViewLifecycleOwner(), tripAgentViewModel, normalBottomSheetViewModel);
 
         // colouring by trips/visits or by activity, chosen on the Display Options screen
         legendRoot = fragment.requireView();
@@ -600,7 +604,7 @@ public class TrajectoryManager {
                 Object rawActivityType = getValueIgnoreCase(properties, "activity_type");
                 String type = rawActivityType == null || rawActivityType == JSONObject.NULL
                         ? ""
-                        : rawActivityType.toString().trim().toLowerCase(Locale.ROOT);
+                        : canonicalActivityType(rawActivityType.toString());
                 if (!type.isEmpty()) {
                     directActivityTypes.merge(type, 1, Integer::sum);
                 }
@@ -664,17 +668,45 @@ public class TrajectoryManager {
         return null;
     }
 
+    /**
+     * Maps names the backend may send (Google-style IN_VEHICLE, ON_BICYCLE, ON_FOOT, ...) onto the labels
+     * used for colouring: walking, still, vehicle, bike. Anything else is returned lower-cased and unchanged.
+     */
+    private String canonicalActivityType(String raw) {
+        String t = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        switch (t) {
+            case "in_vehicle":
+            case "invehicle":
+            case "driving":
+            case "car":
+                return "vehicle";
+            case "on_bicycle":
+            case "bicycle":
+            case "cycling":
+                return "bike";
+            case "no_signal":
+            case "signal_lost":
+                return "lost_signal";
+            case "on_foot":
+            case "walk":
+            case "running":
+                return "walking";
+            default:
+                return t;
+        }
+    }
+
     private String getDominantActivityType(JSONObject proportions) {
         if (proportions == null) {
             return null;
         }
 
-        String dominantType = null;
-        double largestProportion = 0;
+        // sum per canonical type, so e.g. WALKING + ON_FOOT count together
+        Map<String, Double> totals = new HashMap<>();
         Iterator<String> activityTypes = proportions.keys();
         while (activityTypes.hasNext()) {
             String rawActivityType = activityTypes.next();
-            String activityType = rawActivityType.trim().toLowerCase(Locale.ROOT);
+            String activityType = canonicalActivityType(rawActivityType);
             Object value = proportions.opt(rawActivityType);
             double proportion;
             if (value instanceof Number) {
@@ -689,12 +721,17 @@ public class TrajectoryManager {
             } else {
                 continue;
             }
+            if (!Double.isNaN(proportion) && !Double.isInfinite(proportion)) {
+                totals.merge(activityType, proportion, Double::sum);
+            }
+        }
 
-            if (activityColors.containsKey(activityType)
-                    && !Double.isNaN(proportion) && !Double.isInfinite(proportion)
-                    && proportion > largestProportion) {
-                largestProportion = proportion;
-                dominantType = activityType;
+        String dominantType = null;
+        double largestProportion = 0;
+        for (Map.Entry<String, Double> entry : totals.entrySet()) {
+            if (activityColors.containsKey(entry.getKey()) && entry.getValue() > largestProportion) {
+                largestProportion = entry.getValue();
+                dominantType = entry.getKey();
             }
         }
         return dominantType;
@@ -738,21 +775,21 @@ public class TrajectoryManager {
         boolean activity = colorMode == ColorMode.ACTIVITY;
 
         String[] labels = activity
-                ? new String[]{"Walking", "Still", "Vehicle", "Bicycle"}
-                : new String[]{"Visit", "Trip", "", ""};
+                ? new String[]{"Walking", "Still", "Vehicle", "Bicycle", "Lost signal"}
+                : new String[]{"Visit", "Trip", "", "", ""};
         String[] colors = activity
                 ? new String[]{activityColors.get("walking"), activityColors.get("still"),
-                activityColors.get("vehicle"), activityColors.get("bike")}
-                : new String[]{tripColors.get("0"), tripColors.get("default"), null, null};
+                activityColors.get("vehicle"), activityColors.get("bike"), activityColors.get("lost_signal")}
+                : new String[]{tripColors.get("0"), tripColors.get("default"), null, null, null};
         // the card grows when it shows two lines, lift it a little so it stays clear of the sheet
         View legendCard = legendRoot.findViewById(R.id.legend_card);
         if (legendCard != null) {
             float density = legendRoot.getResources().getDisplayMetrics().density;
-            legendCard.setTranslationY((activity ? -122 : -108) * density);
+            legendCard.setTranslationY((activity ? -148 : -108) * density);
         }
-        int[] rows = {R.id.legend_row_1, R.id.legend_row_2, R.id.legend_row_3, R.id.legend_row_4};
-        int[] swatches = {R.id.legend_swatch_1, R.id.legend_swatch_2, R.id.legend_swatch_3, R.id.legend_swatch_4};
-        int[] texts = {R.id.legend_text_1, R.id.legend_text_2, R.id.legend_text_3, R.id.legend_text_4};
+        int[] rows = {R.id.legend_row_1, R.id.legend_row_2, R.id.legend_row_3, R.id.legend_row_4, R.id.legend_row_5};
+        int[] swatches = {R.id.legend_swatch_1, R.id.legend_swatch_2, R.id.legend_swatch_3, R.id.legend_swatch_4, R.id.legend_swatch_5};
+        int[] texts = {R.id.legend_text_1, R.id.legend_text_2, R.id.legend_text_3, R.id.legend_text_4, R.id.legend_text_5};
         for (int i = 0; i < rows.length; i++) {
             View row = legendRoot.findViewById(rows[i]);
             if (colors[i] == null) {

@@ -24,7 +24,22 @@ public class TripAgentRepository {
             @Override
             public void onSuccess(String accessToken) {
                 tripAgentNetworkSource.processTrajectoryForTimeline(accessToken, lowerbound, upperbound,
-                        callback::onSuccess,
+                        // the agent answers 202 as soon as the job is queued; wait until it has actually finished
+                        queuedResponse -> JobPoller.awaitCompletion(queuedResponse,
+                                fetchCallback -> tripAgentNetworkSource.getActiveJobs(accessToken,
+                                        fetchCallback::onSuccess,
+                                        e -> fetchCallback.onFailure(e)),
+                                new RepositoryCallback<>() {
+                                    @Override
+                                    public void onSuccess(Void unused) {
+                                        callback.onSuccess(queuedResponse);
+                                    }
+
+                                    @Override
+                                    public void onFailure(Throwable error) {
+                                        callback.onFailure(new Throwable("Failed while waiting for trip agent", error));
+                                    }
+                                }),
                         error -> callback.onFailure(new Throwable("Failed to run trip agent", error)));
             }
 

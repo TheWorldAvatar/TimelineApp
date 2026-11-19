@@ -65,4 +65,24 @@ public class TripAgentNetworkSource {
         request.setRetryPolicy(new DefaultRetryPolicy(1000000, 2, DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
         requestQueue.add(request);
     }
+
+    /**
+     * Fetch the authenticated user's queued and running jobs (JSON array). Finished jobs are not listed.
+     */
+    public void getActiveJobs(String accessToken, Response.Listener<String> onSuccess, Response.ErrorListener onFailure) {
+        String uri = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
+                .addPathSegments(context.getString(uk.ac.cam.cares.jps.utils.R.string.tripagent_jobs_active))
+                .build().toString();
+
+        StringRequest request = new StringRequest(Request.Method.GET, uri, onSuccess, onFailure) {
+            @Override
+            public Map<String, String> getHeaders() {
+                Map<String, String> headers = new HashMap<>();
+                headers.put("Authorization", "Bearer " + accessToken);
+                return headers;
+            }
+        };
+        request.setRetryPolicy(new DefaultRetryPolicy(15000, 1, DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+        requestQueue.add(request);
+    }
 }

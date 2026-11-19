@@ -15,7 +15,9 @@
 
     <string name="tripagent_process_trajectory_for_timeline">trip-agent/process_trajectory_for_timeline</string>
     <string name="tripagent_processTrajectory">trip-agent/process_trajectory</string>
+    <string name="tripagent_jobs_active">trip-agent/jobs/active</string>
     <string name="exposurecalculationagent_triggerCalculation">exposure-calculation-agent/calculate_exposure_for_timeline</string>
+    <string name="exposurecalculationagent_jobs_active">exposure-calculation-agent/jobs/active</string>
     <string name="exposurefeatureinfoagent_timeline">exposure-feature-info-agent/timeline</string>
     <string name="exposurefeatureinfoagent_datasets">exposure-feature-info-agent/timeline/getDatasets</string>
 

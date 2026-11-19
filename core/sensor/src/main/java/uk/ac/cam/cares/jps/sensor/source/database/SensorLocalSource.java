@@ -14,8 +14,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -355,9 +357,24 @@ public class SensorLocalSource {
             }
         }
 
+        // Build the payload (times are rounded to ms, sent as ns) and drop duplicates:
+        // two records of the same sensor with the same rounded time are the same sample.
+        // Dropped duplicates stay in timesBySensorOut, so they are still marked as
+        // uploaded after a successful send and never retried.
         JSONArray allSensorDataArray = new JSONArray();
+        Set<String> seen = new HashSet<>();
+        int duplicates = 0;
         for (SensorData sensorData : allSensorData) {
-            allSensorDataArray.put(sensorData.toJson());
+            JSONObject json = sensorData.toJson();
+            String key = json.optString("name") + "@" + json.optLong("time");
+            if (!seen.add(key)) {
+                duplicates++;
+                continue;
+            }
+            allSensorDataArray.put(json);
+        }
+        if (duplicates > 0) {
+            LOGGER.info("Removed " + duplicates + " duplicate record(s) from upload batch");
         }
         return allSensorDataArray;
     }

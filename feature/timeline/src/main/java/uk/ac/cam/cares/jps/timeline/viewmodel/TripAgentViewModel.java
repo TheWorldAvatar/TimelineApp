@@ -36,6 +36,10 @@ public class TripAgentViewModel extends ViewModel {
     }
 
     public void runTripAgent(LocalDate date) {
+        // a run is already in progress (manual button or the automatic timer): do not start another
+        if (Boolean.TRUE.equals(_isRunning.getValue())) {
+            return;
+        }
         Long lowerbound = date != null ? TrajectoryViewModel.calculateLowerbound(date) : null;
         Long upperbound = date != null ? TrajectoryViewModel.calculateUpperbound(date) : null;
         _isRunning.setValue(true);
