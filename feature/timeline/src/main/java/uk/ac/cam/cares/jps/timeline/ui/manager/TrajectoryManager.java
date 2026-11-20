@@ -51,7 +51,6 @@ import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.TrajectoryViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.DisplayOptionsViewModel;   // CHANGE: ADD import (lives in core:ui-impl)
-import uk.ac.cam.cares.jps.timeline.viewmodel.RoutesViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
 import uk.ac.cam.cares.jps.timeline.viewmodel.TripAgentViewModel;
@@ -81,7 +80,6 @@ public class TrajectoryManager {
     private View legendRoot;
     // CHANGE: the map button is gone, the choice now comes from the Display Options screen through this ViewModel
     private final DisplayOptionsViewModel displayOptionsViewModel;
-    private final RoutesViewModel routesViewModel;   // to know whether we are in route mode
     private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
     private boolean trajectoryVisible = true;
     private final TripAgentViewModel tripAgentViewModel;
@@ -140,16 +138,15 @@ public class TrajectoryManager {
         trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
         tripAgentViewModel = new ViewModelProvider(fragment).get(TripAgentViewModel.class);
-        routesViewModel = new ViewModelProvider(fragment.requireActivity()).get(RoutesViewModel.class);
         // CHANGE: activity-scoped, so it is the same instance DisplayOptionsFragment writes to
         displayOptionsViewModel = new ViewModelProvider(fragment.requireActivity()).get(DisplayOptionsViewModel.class);
         this.mapView = mapView;
 
         activityColors.put("walking", "#22A06B");
-        activityColors.put("still", "#8B929C");
+        activityColors.put("still", "#E53935");
         activityColors.put("vehicle", "#3977D5");
         activityColors.put("bike", "#E99A27");
-        activityColors.put("lost_signal", "#E53935");
+        activityColors.put("lost_signal", "#8B929C");
         activityColors.put("default", "#B0BEC5");
 
         // trip == 0 (stationary/stay segment) gets one color
@@ -264,9 +261,6 @@ public class TrajectoryManager {
 
         gesturesPlugin.addOnMapClickListener(point -> {
 
-            if (routesViewModel.isRouteMode()) {
-                return false;
-            }
             Log.d("TrajectoryClick", "Map clicked at: " + point.longitude() + ", " + point.latitude());
 
             ScreenCoordinate screenPoint = mapView.getMapboxMap().pixelForCoordinate(point);

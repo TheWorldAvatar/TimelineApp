@@ -2,7 +2,12 @@ package uk.ac.cam.cares.jps.timeline;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Build;
+import android.os.CancellationSignal;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.location.Location;
@@ -24,11 +29,11 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.navigation.fragment.NavHostFragment;
 
-import com.google.android.gms.location.FusedLocationProviderClient;
-import com.google.android.gms.location.LocationCallback;
-import com.google.android.gms.location.LocationRequest;
-import com.google.android.gms.location.LocationResult;
-import com.google.android.gms.location.LocationServices;
+// import com.google.android.gms.location.FusedLocationProviderClient;  // removed: Google Play services no longer used
+// import com.google.android.gms.location.LocationCallback;  // removed: Google Play services no longer used
+// import com.google.android.gms.location.LocationRequest;  // removed: Google Play services no longer used
+// import com.google.android.gms.location.LocationResult;  // removed: Google Play services no longer used
+// import com.google.android.gms.location.LocationServices;  // removed: Google Play services no longer used
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.mapbox.geojson.Point;
@@ -51,9 +56,6 @@ import uk.ac.cam.cares.jps.sensor.source.handler.SensorType;
 import uk.ac.cam.cares.jps.sensor.ui.RecordingViewModel;
 import uk.ac.cam.cares.jps.timeline.ui.manager.BottomSheetManager;
 import uk.ac.cam.cares.jps.timeline.ui.manager.TrajectoryManager;
-import uk.ac.cam.cares.jps.timeline.ui.manager.RouteManager;
-import uk.ac.cam.cares.jps.timeline.ui.manager.RoutePanelManager;
-import uk.ac.cam.cares.jps.timeline.viewmodel.RoutesViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 import uk.ac.cam.cares.jps.timelinemap.databinding.FragmentTimelineBinding;
 import uk.ac.cam.cares.jps.ui.impl.tooltip.TooltipSequence;
@@ -74,8 +76,10 @@ public class TimelineFragment extends Fragment {
     private ScaleBarPlugin scaleBarPlugin;
     private CompassPlugin compassPlugin;
 
-    private FusedLocationProviderClient fusedLocationClient;
-    private LocationCallback locationCallback;
+    // private FusedLocationProviderClient fusedLocationClient;   // gms, removed
+    // private LocationCallback locationCallback;                 // gms, removed
+    private CancellationSignal locationCancellation;               // cancels the one-shot platform location request
+    private LocationListener singleUpdateListener;                 // only used on API < 30
 
     private RecordingViewModel recordingStateViewModel;
     private TooltipTriggerViewModel tooltipTriggerViewModel;
@@ -84,7 +88,6 @@ public class TimelineFragment extends Fragment {
 
     private DatasetLayerManager datasetLayerManager;
 
-    private RoutesViewModel routesViewModel;
     private TrajectoryManager trajectoryManager;
 
     @Nullable
@@ -101,12 +104,11 @@ public class TimelineFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
 
         mapView = binding.mapView;
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext());
+        // fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext());  // gms, removed
 
         recordingStateViewModel = new ViewModelProvider(this).get(RecordingViewModel.class);
         tooltipTriggerViewModel = new ViewModelProvider(requireActivity()).get(TooltipTriggerViewModel.class);
         accountViewModel = new ViewModelProvider(this).get(UserAccountViewModel.class);
-        routesViewModel = new ViewModelProvider(requireActivity()).get(RoutesViewModel.class);
 
         permissionHelper = new PermissionHelper(this);
 
@@ -117,10 +119,6 @@ public class TimelineFragment extends Fragment {
 
         trajectoryManager = new TrajectoryManager(this, mapView);
         new BottomSheetManager(this, binding.bottomSheetContainer);
-
-        new RouteManager(this, mapView);
-        new RoutePanelManager(this, mapView);
-        observeMode();
 
         datasetLayerManager = new DatasetLayerManager(this, mapView);
         binding.datasetLayerButton.setOnClickListener(v -> datasetLayerManager.toggleDatasetLayer());
@@ -253,25 +251,104 @@ public class TimelineFragment extends Fragment {
     }
 
 
+    /**
+     * Centres the map on a single location fix using the platform {@link LocationManager}
+     * (no Google Play services). Provider preference: FUSED_PROVIDER (API 31+, the platform fused
+     * provider), then GPS, then NETWORK. Falls back to the default camera if nothing is available.
+     */
     @SuppressLint("MissingPermission")
     private void getAndCenterUserLocation() {
-        LocationRequest locationRequest = LocationRequest.create().setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY).setInterval(1000).setNumUpdates(1);
-        locationCallback = new LocationCallback() {
-            @Override
-            public void onLocationResult(@NonNull LocationResult result) {
-                Location loc = result.getLastLocation();
-                if (loc != null) {
-                    mapView.getMapboxMap().setCamera(
-                            new CameraOptions.Builder()
-                                    .center(Point.fromLngLat(loc.getLongitude(), loc.getLatitude()))
-                                    .zoom(15.0).build());
-                } else {
-                    setCameraToDefaultLocation();
-                }
-            }
-        };
-        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
+        LocationManager lm = (LocationManager) requireContext().getSystemService(Context.LOCATION_SERVICE);
+        String provider = pickProvider(lm);
+        if (lm == null || provider == null) {
+            setCameraToDefaultLocation();
+            return;
+        }
+        cancelLocationRequest();
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            locationCancellation = new CancellationSignal();
+            lm.getCurrentLocation(provider, locationCancellation,
+                    ContextCompat.getMainExecutor(requireContext()), this::centerOnLocationOrDefault);
+            return;
+        }
+
+        // API 26-29: use a cached fix if there is one, otherwise ask for a single update
+        Location last = lm.getLastKnownLocation(provider);
+        if (last != null) {
+            centerOnLocationOrDefault(last);
+            return;
+        }
+        singleUpdateListener = this::centerOnLocationOrDefault;
+        lm.requestSingleUpdate(provider, singleUpdateListener, Looper.getMainLooper());
     }
+
+    private String pickProvider(LocationManager lm) {
+        if (lm == null) return null;
+        List<String> candidates = new java.util.ArrayList<>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) candidates.add(LocationManager.FUSED_PROVIDER);
+        candidates.add(LocationManager.GPS_PROVIDER);
+        candidates.add(LocationManager.NETWORK_PROVIDER);
+        for (String p : candidates) {
+            try {
+                if (lm.isProviderEnabled(p)) return p;
+            } catch (IllegalArgumentException ignored) {
+                // provider not present on this device
+            }
+        }
+        return null;
+    }
+
+    private void centerOnLocationOrDefault(@Nullable Location loc) {
+        if (!isAdded() || mapView == null) return; // view already gone
+        if (loc != null) {
+            mapView.getMapboxMap().setCamera(
+                    new CameraOptions.Builder()
+                            .center(Point.fromLngLat(loc.getLongitude(), loc.getLatitude()))
+                            .zoom(15.0).build());
+        } else {
+            setCameraToDefaultLocation();
+        }
+    }
+
+    private void cancelLocationRequest() {
+        if (locationCancellation != null) {
+            locationCancellation.cancel();
+            locationCancellation = null;
+        }
+        if (singleUpdateListener != null && getContext() != null) {
+            LocationManager lm = (LocationManager) requireContext().getSystemService(Context.LOCATION_SERVICE);
+            if (lm != null) lm.removeUpdates(singleUpdateListener);
+            singleUpdateListener = null;
+        }
+    }
+
+    @Override
+    public void onDestroyView() {
+        cancelLocationRequest();
+        super.onDestroyView();
+    }
+
+    // ---- previous gms implementation, kept for reference ----
+    //     @SuppressLint("MissingPermission")
+    //     private void getAndCenterUserLocation() {
+    //         LocationRequest locationRequest = LocationRequest.create().setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY).setInterval(1000).setNumUpdates(1);
+    //         locationCallback = new LocationCallback() {
+    //             @Override
+    //             public void onLocationResult(@NonNull LocationResult result) {
+    //                 Location loc = result.getLastLocation();
+    //                 if (loc != null) {
+    //                     mapView.getMapboxMap().setCamera(
+    //                             new CameraOptions.Builder()
+    //                                     .center(Point.fromLngLat(loc.getLongitude(), loc.getLatitude()))
+    //                                     .zoom(15.0).build());
+    //                 } else {
+    //                     setCameraToDefaultLocation();
+    //                 }
+    //             }
+    //         };
+    //         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
+    //     }
 
     private void setCameraToDefaultLocation() {
         CameraOptions defaultCam = new CameraOptions.Builder()
@@ -327,38 +404,6 @@ public class TimelineFragment extends Fragment {
         }
         recordingStateViewModel.startRecording();
         Toast.makeText(requireContext(), "Auto-start on", Toast.LENGTH_SHORT).show();
-    }
-
-    // ADD. The Recording | Routes selector now lives in the profile dialog (UserDialogFragment),
-    // so this fragment only has to REACT to the mode.
-    private void observeMode() {
-        routesViewModel.mode.observe(getViewLifecycleOwner(), this::applyMode);
-    }
-
-    /**
-     * Shows the widgets of the current mode and hides the other mode's widgets.
-     * Recording mode = everything the screen showed before this feature. Route mode = route panel instead.
-     */
-    private void applyMode(RoutesViewModel.MapMode mode) {
-        boolean routeMode = mode == RoutesViewModel.MapMode.ROUTE_SELECTION;
-
-        binding.routePanel.setVisibility(routeMode ? View.VISIBLE : View.GONE);
-
-        // The recording-mode widgets.
-        int recordingVisibility = routeMode ? View.GONE : View.VISIBLE;
-        binding.bottomSheetContainer.setVisibility(recordingVisibility);
-        binding.recordingFab.setVisibility(recordingVisibility);
-        binding.legendCard.setVisibility(recordingVisibility);
-        binding.runTripAgentButton.setVisibility(recordingVisibility);
-        binding.datasetLayerButton.setVisibility(recordingVisibility);
-        //binding.trajectoryModeButton.setVisibility(recordingVisibility);
-        if (routeMode) {
-            // Hidden only. In recording mode it stays hidden until a trip is selected, as before.
-            binding.tripDetailBubble.setVisibility(View.GONE);
-        }
-
-        // Keep the recorded trajectories off the map while choosing a route.
-        trajectoryManager.setTrajectoryVisible(!routeMode);
     }
 
     private void setupTripDetailScroll() {

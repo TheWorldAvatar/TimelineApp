@@ -26,6 +26,6 @@ dependencies {
     annotationProcessor "androidx.room:room-compiler:$room_version"
     implementation "androidx.room:room-rxjava3:$room_version"
     kapt "androidx.room:room-compiler:$room_version"
-    implementation 'com.google.android.gms:play-services-location:21.0.1'
+    // implementation 'com.google.android.gms:play-services-location:21.0.1'  // removed: no longer used
 
 }

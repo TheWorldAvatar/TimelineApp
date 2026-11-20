@@ -29,6 +29,8 @@ local.properties
 /feature/timeline/build
 /app/build
 
+/local_ors/
+
 
 *.png
 
