@@ -143,10 +143,10 @@ public class TrajectoryManager {
         this.mapView = mapView;
 
         activityColors.put("walking", "#22A06B");
-        activityColors.put("still", "#8B929C");
+        activityColors.put("still", "#E53935");
         activityColors.put("vehicle", "#3977D5");
         activityColors.put("bike", "#E99A27");
-        activityColors.put("lost_signal", "#E53935");
+        activityColors.put("lost_signal", "#8B929C");
         activityColors.put("default", "#B0BEC5");
 
         // trip == 0 (stationary/stay segment) gets one color
