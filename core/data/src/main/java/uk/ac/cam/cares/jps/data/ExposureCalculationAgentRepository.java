@@ -9,7 +9,7 @@ public class ExposureCalculationAgentRepository {
     private static final String DEFAULT_RDF_PREFIX = "https://www.theworldavatar.com/kg/ontoexposure/";
     private static final String DEFAULT_RDF_TYPE = "TrajectoryCount";
     private static final String DEFAULT_DISTANCE = "400";
-    private static final String DEFAULT_EXPOSURE_DATASET_IRI = "https://theworldavatar.io/kg/fb345d84-5d84-4d9b-b6c6-4d6c327d25e6"; // Hawker Centre
+    private static final String DEFAULT_EXPOSURE_DATASET_IRI = "https://theworldavatar.io/kg/952db046-2282-4af1-a351-be715b6d8c95"; // Hawker Centre
 
     private final ExposureCalculationAgentNetworkSource networkSource;
     private final AppPreferenceRepository appPreferenceRepository;

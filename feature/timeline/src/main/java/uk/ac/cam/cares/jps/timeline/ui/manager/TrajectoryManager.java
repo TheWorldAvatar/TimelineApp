@@ -70,6 +70,8 @@ public class TrajectoryManager {
     private String layerId;
     private JSONArray baseColorExpression;
     private static final String GREYED_OUT_COLOR = "#BDBDBD";
+    private static final String NOT_COMPUTED_COLOR = "#9E9E9E";   // activity mode: no activity data computed (yet)
+    private final Map<String, String> notComputedColors = new HashMap<>();
     private static final double SAME_SESSION_OPACITY = 0.35;
     private static final double OTHER_SESSION_OPACITY = 0.3;
 
@@ -146,16 +148,20 @@ public class TrajectoryManager {
         this.mapView = mapView;
 
         activityColors.put("walking", "#22A06B");
-        activityColors.put("still", "#8B929C");
+        activityColors.put("still", "#E53935");      // red
         activityColors.put("vehicle", "#3977D5");
         activityColors.put("bike", "#E99A27");
-        activityColors.put("lost_signal", "#E53935");
-        activityColors.put("default", "#B0BEC5");
+        activityColors.put("lost_signal", "#000000"); // black
+        activityColors.put("default", NOT_COMPUTED_COLOR); // grey: nothing computed
 
         // trip == 0 (stationary/stay segment) gets one color
         tripColors.put("0", "#FF0000");
         // any other trip number gets the other color
         tripColors.put("default", "#008000");
+
+        // activity mode before/without computed activity data: everything grey (never the trip colours)
+        notComputedColors.put("0", NOT_COMPUTED_COLOR);
+        notComputedColors.put("default", NOT_COMPUTED_COLOR);
 
         String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
         this.selectedColor = selectedColor;
@@ -752,8 +758,8 @@ public class TrajectoryManager {
                 paintTrajectoryByActivity(style, activityTrajectory.getGeojson(), activityColors, "default");
                 paintedActivity = true;
             } else {
-                // not loaded yet (or no activity data): keep showing the trips colouring
-                paintTrajectoryByUserId(style, currentTrajectory, tripColors, "default");
+                // not loaded yet (or nothing computed): grey, so the trip colours never show in Activity mode
+                paintTrajectoryByUserId(style, currentTrajectory, notComputedColors, "default");
                 if (activityTrajectory == null && !date.equals(activityFetchDate)) {
                     activityFetchDate = date;
                     trajectoryViewModel.getActivityTrajectory(date);
@@ -1088,7 +1094,7 @@ public class TrajectoryManager {
             }
 
             if (!failureLayers.isEmpty() || !failureSources.isEmpty()) {
-                LOGGER.error("Failed to remove layers: " + String.join(", ", failureLayers));
+                LOGGER.error("Failed to remove layers: " + String.join(", ", failureLayers));https://github.com/TheWorldAvatar/TimelineApp
                 LOGGER.error("Failed to remove sources: " + String.join(", ", failureSources));
             }
 
