@@ -51,7 +51,6 @@ import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.TrajectoryViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.DisplayOptionsViewModel;   // CHANGE: ADD import (lives in core:ui-impl)
-import uk.ac.cam.cares.jps.timeline.viewmodel.RoutesViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
 import uk.ac.cam.cares.jps.timeline.viewmodel.TripAgentViewModel;
@@ -70,8 +69,6 @@ public class TrajectoryManager {
     private String layerId;
     private JSONArray baseColorExpression;
     private static final String GREYED_OUT_COLOR = "#BDBDBD";
-    private static final String NOT_COMPUTED_COLOR = "#9E9E9E";   // activity mode: no activity data computed (yet)
-    private final Map<String, String> notComputedColors = new HashMap<>();
     private static final double SAME_SESSION_OPACITY = 0.35;
     private static final double OTHER_SESSION_OPACITY = 0.3;
 
@@ -83,7 +80,6 @@ public class TrajectoryManager {
     private View legendRoot;
     // CHANGE: the map button is gone, the choice now comes from the Display Options screen through this ViewModel
     private final DisplayOptionsViewModel displayOptionsViewModel;
-    private final RoutesViewModel routesViewModel;   // to know whether we are in route mode
     private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
     private boolean trajectoryVisible = true;
     private final TripAgentViewModel tripAgentViewModel;
@@ -142,26 +138,21 @@ public class TrajectoryManager {
         trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
         tripAgentViewModel = new ViewModelProvider(fragment).get(TripAgentViewModel.class);
-        routesViewModel = new ViewModelProvider(fragment.requireActivity()).get(RoutesViewModel.class);
         // CHANGE: activity-scoped, so it is the same instance DisplayOptionsFragment writes to
         displayOptionsViewModel = new ViewModelProvider(fragment.requireActivity()).get(DisplayOptionsViewModel.class);
         this.mapView = mapView;
 
         activityColors.put("walking", "#22A06B");
-        activityColors.put("still", "#E53935");      // red
+        activityColors.put("still", "#8B929C");
         activityColors.put("vehicle", "#3977D5");
         activityColors.put("bike", "#E99A27");
-        activityColors.put("lost_signal", "#000000"); // black
-        activityColors.put("default", NOT_COMPUTED_COLOR); // grey: nothing computed
+        activityColors.put("lost_signal", "#E53935");
+        activityColors.put("default", "#B0BEC5");
 
         // trip == 0 (stationary/stay segment) gets one color
         tripColors.put("0", "#FF0000");
         // any other trip number gets the other color
         tripColors.put("default", "#008000");
-
-        // activity mode before/without computed activity data: everything grey (never the trip colours)
-        notComputedColors.put("0", NOT_COMPUTED_COLOR);
-        notComputedColors.put("default", NOT_COMPUTED_COLOR);
 
         String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
         this.selectedColor = selectedColor;
@@ -270,9 +261,6 @@ public class TrajectoryManager {
 
         gesturesPlugin.addOnMapClickListener(point -> {
 
-            if (routesViewModel.isRouteMode()) {
-                return false;
-            }
             Log.d("TrajectoryClick", "Map clicked at: " + point.longitude() + ", " + point.latitude());
 
             ScreenCoordinate screenPoint = mapView.getMapboxMap().pixelForCoordinate(point);
@@ -758,8 +746,8 @@ public class TrajectoryManager {
                 paintTrajectoryByActivity(style, activityTrajectory.getGeojson(), activityColors, "default");
                 paintedActivity = true;
             } else {
-                // not loaded yet (or nothing computed): grey, so the trip colours never show in Activity mode
-                paintTrajectoryByUserId(style, currentTrajectory, notComputedColors, "default");
+                // not loaded yet (or no activity data): keep showing the trips colouring
+                paintTrajectoryByUserId(style, currentTrajectory, tripColors, "default");
                 if (activityTrajectory == null && !date.equals(activityFetchDate)) {
                     activityFetchDate = date;
                     trajectoryViewModel.getActivityTrajectory(date);
@@ -1094,7 +1082,7 @@ public class TrajectoryManager {
             }
 
             if (!failureLayers.isEmpty() || !failureSources.isEmpty()) {
-                LOGGER.error("Failed to remove layers: " + String.join(", ", failureLayers));https://github.com/TheWorldAvatar/TimelineApp
+                LOGGER.error("Failed to remove layers: " + String.join(", ", failureLayers));
                 LOGGER.error("Failed to remove sources: " + String.join(", ", failureSources));
             }
 

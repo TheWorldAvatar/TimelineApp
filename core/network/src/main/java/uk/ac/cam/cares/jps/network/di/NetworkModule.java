@@ -15,7 +15,6 @@ import uk.ac.cam.cares.jps.network.DatesWithTrajectoryNetworkSource;
 import uk.ac.cam.cares.jps.network.DatasetLayerNetworkSource;
 import uk.ac.cam.cares.jps.network.TrajectoryNetworkSource;
 import uk.ac.cam.cares.jps.network.TripAgentNetworkSource;
-import uk.ac.cam.cares.jps.network.OrsRoutingNetworkSource; 
 
 import uk.ac.cam.cares.jps.network.ExposureCalculationAgentNetworkSource;
 import uk.ac.cam.cares.jps.network.ExposureFeatureInfoNetworkSource;
@@ -56,11 +55,5 @@ public class NetworkModule {
     @Provides @Singleton
     public ExposureFeatureInfoNetworkSource provideExposureFeatureInfoNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
         return new ExposureFeatureInfoNetworkSource(requestQueue, context);
-    }
-
-    @Provides
-    @Singleton
-    public OrsRoutingNetworkSource provideOrsRoutingNetworkSource(RequestQueue requestQueue, @ApplicationContext Context context) {
-        return new OrsRoutingNetworkSource(requestQueue, context);
     }
 }

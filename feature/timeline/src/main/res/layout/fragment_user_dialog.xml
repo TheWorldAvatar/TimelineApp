@@ -54,51 +54,6 @@
                     android:background="#DDDDDD"
                     android:layout_marginTop="12dp" />
 
-                <!-- ADD START: Map mode selector. The checked button is set in UserDialogFragment
-                    from the current mode, so no checkedButton attribute is needed here. -->
-                <TextView
-                    android:id="@+id/map_mode_label"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="start"
-                    android:layout_marginTop="12dp"
-                    android:text="@string/map_mode_label"
-                    android:textSize="13sp"
-                    android:textColor="#888888"
-                    android:visibility="gone" />
-
-                <com.google.android.material.button.MaterialButtonToggleGroup
-                    android:id="@+id/dialog_mode_toggle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    app:singleSelection="true"
-                    app:selectionRequired="true"
-                    android:visibility="gone">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/dialog_mode_recording_button"
-                        style="?attr/materialButtonOutlinedStyle"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/mode_recording" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/dialog_mode_routes_button"
-                        style="?attr/materialButtonOutlinedStyle"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/mode_routes" />
-                </com.google.android.material.button.MaterialButtonToggleGroup>
-
-                <View                                      
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="#DDDDDD"
-                    android:layout_marginTop="12dp" 
-                    android:visibility="gone"/>
                 <!-- ADD END -->
 
                 <LinearLayout

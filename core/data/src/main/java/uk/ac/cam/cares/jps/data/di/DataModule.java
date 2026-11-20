@@ -28,8 +28,6 @@ import uk.ac.cam.cares.jps.data.ExposureFeatureInfoRepository;
 import uk.ac.cam.cares.jps.network.ExposureFeatureInfoNetworkSource;
 
 import uk.ac.cam.cares.jps.data.ExposureDatasetRepository;   
-import uk.ac.cam.cares.jps.data.RoutingRepository;
-import uk.ac.cam.cares.jps.network.OrsRoutingNetworkSource;
 
 
 /**
@@ -96,11 +94,5 @@ public class DataModule {
     public ExposureDatasetRepository provideExposureDatasetRepository(ExposureFeatureInfoNetworkSource networkSource,
                                                                         LoginRepository loginRepository) {
         return new ExposureDatasetRepository(networkSource, loginRepository);
-    }
-
-    @Provides
-    @Singleton
-    public RoutingRepository provideRoutingRepository(OrsRoutingNetworkSource orsRoutingNetworkSource) {
-        return new RoutingRepository(orsRoutingNetworkSource);
     }
 }
