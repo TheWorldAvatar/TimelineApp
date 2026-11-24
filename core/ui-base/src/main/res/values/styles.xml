@@ -1,22 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
     <style name="Widget.TWA.ToolBar" parent="Widget.Material3.Toolbar">
         <item name="android:background">?attr/colorPrimary</item>
         <item name="titleTextColor">?attr/colorOnPrimary</item>
     </style>
 
     <style name="Widget.TWA.BottomSheet" parent="Widget.Material3.BottomSheet">
-        <item name="backgroundTint">?attr/colorSurfaceVariant</item>
+        <item name="backgroundTint">?attr/colorSurface</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.TWA.BottomSheet</item>
     </style>
 
-    <style name="SubText" parent="@android:style/TextAppearance">
-        <item name="android:textSize"> 14sp </item>
-        <item name="android:textColor"> #888888 </item>
+    <style name="ShapeAppearance.TWA.BottomSheet" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSizeTopLeft">28dp</item>
+        <item name="cornerSizeTopRight">28dp</item>
+        <item name="cornerSizeBottomLeft">0dp</item>
+        <item name="cornerSizeBottomRight">0dp</item>
     </style>
 
-    <style name="Description" parent="@android:style/TextAppearance">
-        <item name="android:textSize"> 15sp </item>
-        <item name="android:textColor"> #444444 </item>
+    <style name="SubText" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="Description" parent="TextAppearance.Material3.BodyLarge">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
     </style>
 </resources>

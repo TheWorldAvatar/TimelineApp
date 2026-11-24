@@ -4,41 +4,44 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingVertical="@dimen/component_margin_small">
+    android:background="?attr/selectableItemBackground"
+    android:minHeight="52dp"
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="8dp">
 
     <ImageView
         android:id="@+id/activityType"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:contentDescription="Activity Icon"
         android:src="@drawable/baseline_directions_walk_24"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@id/timeSummary"
-        android:layout_marginEnd="@dimen/component_margin"
-        android:contentDescription="Activity Icon" />
+        app:tint="?attr/colorPrimary" />
 
     <TextView
         android:id="@+id/timeSummary"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginHorizontal="14dp"
+        android:fontFeatureSettings="tnum"
         android:text="00:00 - 00:00"
-        android:textAppearance="?attr/textAppearanceBodyLarge"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="@id/activityType"
-        app:layout_constraintBottom_toBottomOf="@id/activityType"
-        app:layout_constraintEnd_toEndOf="parent"/>
+        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+        android:textColor="?attr/colorOnSurface"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/clicked"
+        app:layout_constraintStart_toEndOf="@id/activityType"
+        app:layout_constraintTop_toTopOf="parent" />
 
     <ImageView
         android:id="@+id/clicked"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/baseline_keyboard_double_arrow_left_24"
-        app:layout_constraintTop_toTopOf="@id/timeSummary"
-        app:layout_constraintBottom_toBottomOf="@id/timeSummary"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:contentDescription="Selected segment"
+        android:src="@drawable/baseline_keyboard_arrow_right_24"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@id/timeSummary"
-        android:layout_marginStart="@dimen/component_margin"
-        android:contentDescription="Click Icon" />
-
+        app:layout_constraintTop_toTopOf="parent"
+        app:tint="?attr/colorPrimary" />
 </androidx.constraintlayout.widget.ConstraintLayout>

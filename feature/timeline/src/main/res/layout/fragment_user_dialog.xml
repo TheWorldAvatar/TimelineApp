@@ -54,8 +54,6 @@
                     android:background="#DDDDDD"
                     android:layout_marginTop="12dp" />
 
-                <!-- ADD END -->
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -71,12 +69,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_account" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -92,12 +88,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_sensor" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -113,12 +107,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_timeline" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -134,12 +126,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_article" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -162,12 +152,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_health" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -183,12 +171,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_location" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -204,7 +190,6 @@
                         android:layout_marginTop="12dp"
                         android:layout_marginBottom="8dp" />
 
-
                     <LinearLayout
                         android:id="@+id/privacy_setting"
                         android:layout_width="match_parent"
@@ -212,12 +197,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_privacy" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -233,12 +216,10 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_help" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -247,8 +228,6 @@
                             android:layout_height="wrap_content" />
                     </LinearLayout>
 
-                    <!-- ADD START: Display Options row. Opens the Display Options screen (feature:user),
-                         same pattern as the Exposure Calculation Settings row. -->
                     <LinearLayout
                         android:id="@+id/display_options_setting"
                         android:layout_width="match_parent"
@@ -256,20 +235,17 @@
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_map" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
-                            android:text="Display Options"
+                            android:text="Advanced Options"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content" />
                     </LinearLayout>
-                    <!-- ADD END -->
 
                     <View
                         android:layout_width="match_parent"
@@ -277,7 +253,6 @@
                         android:background="#DDDDDD"
                         android:layout_marginTop="12dp"
                         android:layout_marginBottom="8dp" />
-
 
                     <LinearLayout
                         android:id="@+id/log_out"
@@ -287,12 +262,10 @@
                         android:gravity="center_vertical"
                         android:paddingVertical="12dp"
                         android:paddingBottom="8dp">
-
                         <ImageView
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/ic_logout" />
-
                         <TextView
                             style="@style/Theme.TWA.UserItem.Text"
                             android:layout_marginStart="12dp"
@@ -341,7 +314,9 @@
                             android:foreground="?attr/selectableItemBackgroundBorderless"
                             android:paddingHorizontal="8dp" />
                     </LinearLayout>
+
                 </LinearLayout>
+
             </LinearLayout>
         </ScrollView>
     </androidx.cardview.widget.CardView>
