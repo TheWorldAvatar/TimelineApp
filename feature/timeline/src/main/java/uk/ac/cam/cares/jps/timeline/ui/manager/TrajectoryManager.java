@@ -6,14 +6,17 @@ import android.content.res.TypedArray;
 import android.graphics.Color;
 import android.util.Log;
 import android.view.View;
-import android.widget.Toast;
+import android.view.ViewTreeObserver;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ViewModelProvider;
 
-
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.mapbox.bindgen.Expected;
 import com.mapbox.bindgen.None;
 import com.mapbox.bindgen.Value;
@@ -78,6 +81,7 @@ public class TrajectoryManager {
     private ActivityTrajectory activityTrajectory;   // activity-split data for the current date
     private LocalDate activityFetchDate;             // date a fetch was already requested for
     private View legendRoot;
+    private boolean legendExpanded = true;
     private final DisplayOptionsViewModel displayOptionsViewModel;
     private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
     private boolean trajectoryVisible = true;
@@ -91,6 +95,12 @@ public class TrajectoryManager {
 
     private final Map<String, String> tripColors = new HashMap<>();
 
+    /**
+     * Constructor of the class
+     *
+     * @param fragment Host fragment
+     * @param mapView  Mapbox map view
+     */
     public TrajectoryManager(Fragment fragment, MapView mapView) {
         trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
@@ -114,7 +124,7 @@ public class TrajectoryManager {
         String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
         this.selectedColor = selectedColor;
 
-        // run the trip agent and then the exposure calculation every 5 minutes while this screen is visible (paused while recording)
+        // Run the trip agent and exposure calculation periodically when visible and NOT recording
         new AutoTripRunner(
                 fragment.getViewLifecycleOwner(),
                 tripAgentViewModel,
@@ -124,6 +134,10 @@ public class TrajectoryManager {
 
         // colouring by trips/visits or by activity, chosen on the Display Options screen
         legendRoot = fragment.requireView();
+        setupLegendToggle();
+        setupLegendPositionListener(fragment.getViewLifecycleOwner());
+
+        // start from whatever was already chosen (the ViewModel outlives this manager)
         colorMode = toColorMode(displayOptionsViewModel.getTrajectoryView());
         updateModeUi();
 
@@ -183,6 +197,145 @@ public class TrajectoryManager {
 
             resetCameraCentre(mapView, trajectoryByDate);
         });
+    }
+
+    private void setupLegendToggle() {
+        if (legendRoot == null) {
+            return;
+        }
+        View legendHeader = legendRoot.findViewById(R.id.legend_header);
+        View legendContent = legendRoot.findViewById(R.id.legend_content);
+        View legendChevron = legendRoot.findViewById(R.id.legend_chevron);
+        View legendCard = legendRoot.findViewById(R.id.legend_card);
+        if (legendHeader == null || legendContent == null) {
+            return;
+        }
+
+        legendExpanded = legendContent.getVisibility() == View.VISIBLE;
+        if (legendChevron != null) {
+            legendChevron.setRotation(legendExpanded ? 180f : 0f);
+        }
+
+        legendHeader.setOnClickListener(v -> {
+            legendExpanded = !legendExpanded;
+            legendContent.setVisibility(legendExpanded ? View.VISIBLE : View.GONE);
+            if (legendChevron != null) {
+                legendChevron.animate()
+                        .rotation(legendExpanded ? 180f : 0f)
+                        .setDuration(150)
+                        .start();
+            }
+            if (legendCard != null) {
+                legendCard.post(() -> positionLegendCard(legendCard));
+            }
+        });
+    }
+
+    private void setupLegendPositionListener(LifecycleOwner owner) {
+        if (legendRoot == null) {
+            return;
+        }
+        View legendCard = legendRoot.findViewById(R.id.legend_card);
+        View bottomSheet = legendRoot.findViewById(R.id.bottom_sheet_container);
+        View recordingFab = legendRoot.findViewById(R.id.recording_fab);
+        if (legendCard == null || bottomSheet == null) {
+            return;
+        }
+
+        View.OnLayoutChangeListener layoutListener = (v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) ->
+                positionLegendCard(legendCard);
+
+        legendCard.addOnLayoutChangeListener(layoutListener);
+        bottomSheet.addOnLayoutChangeListener(layoutListener);
+        if (recordingFab != null) {
+            recordingFab.addOnLayoutChangeListener(layoutListener);
+        }
+
+        try {
+            BottomSheetBehavior<?> behavior = BottomSheetBehavior.from(bottomSheet);
+            BottomSheetBehavior.BottomSheetCallback sheetCallback = new BottomSheetBehavior.BottomSheetCallback() {
+                @Override
+                public void onStateChanged(@NonNull View sheet, int newState) {
+                    positionLegendCard(legendCard);
+                }
+
+                @Override
+                public void onSlide(@NonNull View sheet, float slideOffset) {
+                    positionLegendCard(legendCard);
+                }
+            };
+            behavior.addBottomSheetCallback(sheetCallback);
+            owner.getLifecycle().addObserver(new DefaultLifecycleObserver() {
+                @Override
+                public void onDestroy(@NonNull LifecycleOwner lifecycleOwner) {
+                    behavior.removeBottomSheetCallback(sheetCallback);
+                }
+            });
+        } catch (IllegalArgumentException e) {
+            LOGGER.debug("BottomSheetBehavior not attached to bottom_sheet_container", e);
+        }
+
+        ViewTreeObserver.OnPreDrawListener preDrawListener = () -> {
+            positionLegendCard(legendCard);
+            return true;
+        };
+        legendRoot.getViewTreeObserver().addOnPreDrawListener(preDrawListener);
+        owner.getLifecycle().addObserver(new DefaultLifecycleObserver() {
+            @Override
+            public void onDestroy(@NonNull LifecycleOwner lifecycleOwner) {
+                ViewTreeObserver vto = legendRoot.getViewTreeObserver();
+                if (vto.isAlive()) {
+                    vto.removeOnPreDrawListener(preDrawListener);
+                }
+            }
+        });
+
+        legendCard.post(() -> positionLegendCard(legendCard));
+    }
+
+    private void positionLegendCard(View legendCard) {
+        if (legendRoot == null || legendCard == null || legendCard.getHeight() == 0) {
+            return;
+        }
+        View bottomSheet = legendRoot.findViewById(R.id.bottom_sheet_container);
+        if (bottomSheet == null || bottomSheet.getHeight() == 0) {
+            return;
+        }
+
+        float density = legendRoot.getResources().getDisplayMetrics().density;
+        float marginPx = 16f * density;
+        float sheetTop = bottomSheet.getY();
+        float desiredBottom = sheetTop - marginPx;
+
+        View recordingFab = legendRoot.findViewById(R.id.recording_fab);
+        if (recordingFab != null
+                && recordingFab.getVisibility() == View.VISIBLE
+                && recordingFab.getWidth() > 0
+                && recordingFab.getHeight() > 0) {
+            float horizGap = 8f * density;
+            float legendLeft = legendCard.getX();
+            float legendRight = legendLeft + legendCard.getWidth();
+            float fabLeft = recordingFab.getX();
+            float fabRight = fabLeft + recordingFab.getWidth();
+            boolean overlapsHorizontally = legendRight + horizGap > fabLeft
+                    && fabRight + horizGap > legendLeft;
+            float fabTop = recordingFab.getY();
+            if (overlapsHorizontally && fabTop < sheetTop && (sheetTop - fabTop) < 140f * density) {
+                desiredBottom = Math.min(desiredBottom, fabTop - marginPx);
+            }
+        }
+
+        View appBar = legendRoot.findViewById(R.id.app_bar_layout);
+        float minTop = appBar != null ? appBar.getBottom() + (8f * density) : (8f * density);
+        float minBottom = minTop + legendCard.getHeight();
+        if (desiredBottom < minBottom) {
+            desiredBottom = minBottom;
+        }
+
+        float targetTranslationY = desiredBottom - legendCard.getBottom();
+        if (Math.abs(legendCard.getTranslationY() - targetTranslationY) > 0.5f) {
+            legendCard.setTranslationY(targetTranslationY);
+        }
     }
 
     public void setTrajectoryVisible(boolean visible) {
@@ -283,6 +436,12 @@ public class TrajectoryManager {
         }
     }
 
+    /**
+     * Activity features have no ids that match the trips data, so a tap on the activity layer is
+     * resolved to a trips segment. If the tapped feature carries start_time/end_time, only trips
+     * segments that overlap that time range are considered; the one whose geometry passes closest
+     * to the tap wins. Without times it is purely the closest geometry.
+     */
     private TrajectorySegment resolveTripSegment(Feature feature, Point tap) {
         if (currentTrajectory == null) {
             return null;
@@ -326,6 +485,7 @@ public class TrajectoryManager {
         return null;
     }
 
+    /** Distance from a point to a GeoJSON LineString/MultiLineString/Point, in degrees (longitude scaled by cosLat). */
     private double distanceToGeometry(JSONObject geom, double lng, double lat, double cosLat) {
         if (geom == null) {
             return Double.MAX_VALUE;
@@ -377,6 +537,11 @@ public class TrajectoryManager {
         return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
     }
 
+    /**
+     * Activity mode selection: fade the whole activity layer and draw only the activity pieces that belong
+     * to the selected trips segment on top at full opacity, with the normal activity colours (no highlight
+     * colour). If no piece can be matched, nothing is faded so the map never ends up all faded.
+     */
     private void showSelectedActivityPieces(Style style, TrajectorySegment segment) {
         if (layerId == null || !style.styleLayerExists(layerId)) {
             return;
@@ -408,6 +573,10 @@ public class TrajectoryManager {
         }
     }
 
+    /**
+     * Picks the painted activity features that belong to a trips segment: by time overlap when the features
+     * carry start_time/end_time, otherwise (or if that matches nothing) by lying on the segment's geometry.
+     */
     private JSONArray selectActivityPieces(TrajectorySegment segment) {
         JSONArray byTime = new JSONArray();
         JSONArray byGeometry = new JSONArray();
@@ -445,6 +614,7 @@ public class TrajectoryManager {
         return byTime.length() > 0 ? byTime : byGeometry;
     }
 
+    /** True if at least two of a feature's first/middle/last vertices lie within MATCH_TOLERANCE of the geometry. */
     private boolean liesOnGeometry(JSONObject featureGeom, JSONObject segmentGeom, double cosLat) throws JSONException {
         List<double[]> vertices = flattenVertices(featureGeom);
         if (vertices.isEmpty() || segmentGeom == null) {
@@ -456,7 +626,7 @@ public class TrajectoryManager {
         int last = -1;
         for (int index : samples) {
             if (index == last) {
-                continue;
+                continue;   // short features: do not count the same vertex twice
             }
             last = index;
             counted++;
@@ -506,6 +676,10 @@ public class TrajectoryManager {
         }
     }
 
+    /**
+     * Adds the dominant activity from activity_proportions when the layer has no flat
+     * activity_type property, then logs the values used for map colouring.
+     */
     private String normalizeActivityTypes(String trajectory) {
         try {
             JSONObject geojson = new JSONObject(trajectory);
@@ -594,6 +768,10 @@ public class TrajectoryManager {
         return null;
     }
 
+    /**
+     * Maps names the backend may send (Google-style IN_VEHICLE, ON_BICYCLE, ON_FOOT, ...) onto the labels
+     * used for colouring: walking, still, vehicle, bike. Anything else is returned lower-cased and unchanged.
+     */
     private String canonicalActivityType(String raw) {
         String t = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
         switch (t) {
@@ -623,6 +801,7 @@ public class TrajectoryManager {
             return null;
         }
 
+        // sum per canonical type, so e.g. WALKING + ON_FOOT count together
         Map<String, Double> totals = new HashMap<>();
         Iterator<String> activityTypes = proportions.keys();
         while (activityTypes.hasNext()) {
@@ -666,12 +845,14 @@ public class TrajectoryManager {
             return;
         }
         if (colorMode == ColorMode.ACTIVITY) {
+            // The trips layer has no activity_type, so activity colouring uses its own data.
             LocalDate date = currentTrajectory.getDate();
             if (activityTrajectory != null && date.equals(activityTrajectory.getDate())
                     && !activityTrajectory.getGeojson().isEmpty()) {
                 paintTrajectoryByActivity(style, activityTrajectory.getGeojson(), activityColors, "default");
                 paintedActivity = true;
             } else {
+                // not loaded yet (or no activity data): keep showing the trips colouring
                 paintTrajectoryByUserId(style, currentTrajectory, tripColors, "default");
                 if (activityTrajectory == null && !date.equals(activityFetchDate)) {
                     activityFetchDate = date;
@@ -684,10 +865,12 @@ public class TrajectoryManager {
         applyTrajectoryVisibility(style);
     }
 
+    /** Maps the shared ViewModel's choice onto this class's colour mode. */
     private static ColorMode toColorMode(DisplayOptionsViewModel.TrajectoryView view) {
         return view == DisplayOptionsViewModel.TrajectoryView.ACTIVITY ? ColorMode.ACTIVITY : ColorMode.TRIP;
     }
 
+    /** Updates the legend to match the colour mode. */
     private void updateModeUi() {
         boolean activity = colorMode == ColorMode.ACTIVITY;
 
@@ -704,6 +887,9 @@ public class TrajectoryManager {
         int[] texts = {R.id.legend_text_1, R.id.legend_text_2, R.id.legend_text_3, R.id.legend_text_4, R.id.legend_text_5};
         for (int i = 0; i < rows.length; i++) {
             View row = legendRoot.findViewById(rows[i]);
+            if (row == null) {
+                continue;
+            }
             if (colors[i] == null) {
                 row.setVisibility(View.GONE);
                 continue;
@@ -720,28 +906,11 @@ public class TrajectoryManager {
         }
     }
 
-    private void positionLegendCard(View legendCard) {
-        View bottomSheet = legendRoot.findViewById(R.id.bottom_sheet_container);
-        if (bottomSheet == null) {
-            return;
-        }
-        float density = legendRoot.getResources().getDisplayMetrics().density;
-        float gap = 12f * density;
-        float targetBottom = bottomSheet.getY() - gap;
-
-        View recordingFab = legendRoot.findViewById(R.id.recording_fab);
-        if (recordingFab != null && recordingFab.getVisibility() == View.VISIBLE) {
-            boolean horizontalOverlap = recordingFab.getX() < legendCard.getX() + legendCard.getWidth()
-                    && recordingFab.getX() + recordingFab.getWidth() > legendCard.getX();
-            float fabTopAboveSheet = bottomSheet.getY() - recordingFab.getY();
-            if (horizontalOverlap && fabTopAboveSheet > 0 && fabTopAboveSheet < 140f * density) {
-                targetBottom = Math.min(targetBottom, recordingFab.getY() - gap);
-            }
-        }
-
-        legendCard.setTranslationY(targetBottom - legendCard.getBottom());
-    }
-
+    /**
+     * Fades every segment except the selected one: other segments of the same session keep
+     * their colour but fade; segments of other sessions turn grey and fade.
+     * The selected segment is drawn on top. Passing null restores the normal look.
+     */
     private void updateSessionGreyOut(Style style, TrajectorySegment clickedSegment) {
         if (style == null || layerId == null || baseColorExpression == null
                 || !style.styleLayerExists(layerId)) {
@@ -801,7 +970,7 @@ public class TrajectoryManager {
     }
 
     private void highlightTrajectorySegment(Style style, TrajectorySegment clickedSegment, String selectedColor) {
-        removeHighlightLayer(style);
+        removeHighlightLayer(style); // Ensure no duplicate highlights
 
         try {
             JSONObject paint = new JSONObject();
@@ -840,6 +1009,9 @@ public class TrajectoryManager {
         }
     }
 
+    /**
+     * Paints the trajectory on the map, ensuring each segment gets a unique ID.
+     */
     private void paintTrajectoryByActivity(Style style, String trajectory, Map<String, String> activityColors, String mode) {
         trajectory = normalizeActivityTypes(trajectory);
         activityGeojsonPainted = trajectory;
@@ -897,6 +1069,10 @@ public class TrajectoryManager {
         layerNames.add(mode);
     }
 
+    /**
+     * Paints the trajectory on the map, coloring segments by trip number:
+     * trip == 0 gets one color, any other trip number gets the other.
+     */
     private void paintTrajectoryByUserId(Style style, TrajectoryByDate trajectoryArr, Map<String, String> tripColors, String mode) {
         String trajectory = trajectoryArr.getTrajectoryStr();
         JSONObject sourceJson = new JSONObject();
@@ -928,6 +1104,7 @@ public class TrajectoryManager {
 
             for (Map.Entry<String, String> entry : tripColors.entrySet()) {
                 if (!entry.getKey().equals("default")) {
+                    // "trip" is numeric in the GeoJSON, so the match case must be a numeric literal, not a string
                     colorExpression.put(Integer.parseInt(entry.getKey()));
                     colorExpression.put(entry.getValue());
                 }
