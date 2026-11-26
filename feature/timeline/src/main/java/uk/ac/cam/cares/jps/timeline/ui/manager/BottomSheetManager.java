@@ -14,12 +14,14 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.widget.LinearLayoutCompat;
 import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.datepicker.MaterialDatePicker;
@@ -32,7 +34,6 @@ import org.json.JSONObject;
 
 import java.time.Instant;
 import java.time.ZoneId;
-import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -60,7 +61,7 @@ import uk.ac.cam.cares.jps.timeline.viewmodel.UserPhoneViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
 /**
- * An UI manager that manages bottom sheets on screen and switches in between different bottom sheets
+ * A UI manager that manages bottom sheets on screen and switches between different bottom sheets
  * based on the state.
  */
 public class BottomSheetManager {
@@ -69,13 +70,10 @@ public class BottomSheetManager {
     private final UserPhoneViewModel userPhoneViewModel;
     private final NormalBottomSheetViewModel normalBottomSheetViewModel;
     private final ExposureFeatureInfoViewModel exposureFeatureInfoViewModel;
-
     private final Logger LOGGER = Logger.getLogger(BottomSheetManager.class);
-
     private final FragmentManager fragmentManager;
     private final BottomSheetBehavior<LinearLayoutCompat> bottomSheetBehavior;
     private final LinearLayoutCompat bottomSheetContainer;
-
     private final LifecycleOwner lifecycleOwner;
     private final Context context;
 
@@ -84,19 +82,22 @@ public class BottomSheetManager {
     private final MaterialAlertDialogBuilder sessionExpiredDialog;
     private final GreyOutDecorator greyOutDecorator;
 
+    // Floating map controls anchored to the bottom sheet
+    private final View legendCard;
+    private final View recordingFab;
+
     // trip detail bubble
     private final View tripDetailBubble;
     private final TextView tripDetailIdTv;
-    private final TextView tripDetailDistanceTv;          // now only shows "Loading…" / "No exposure data"
-    private final View tripDetailTableHeaderGroup;        // NEW: pinned header + divider
-    private final LinearLayout tripDetailTableHeader;     // NEW: column titles
-    private final LinearLayout tripDetailTableRows;       // NEW: one row per distance
+    private final TextView tripDetailDistanceTv;
+    private final View tripDetailTableHeaderGroup;
+    private final LinearLayout tripDetailTableHeader;
+    private final LinearLayout tripDetailTableRows;
     private final NestedScrollView tripDetailScroll;
     private final ImageButton tripDetailPrevBt;
     private final ImageButton tripDetailNextBt;
     private final TextView tripDetailPageIndicatorTv;
 
-    // CHANGED: one parsed page per dataset (was a pre-rendered CharSequence)
     private final List<ResultPage> resultPages = new ArrayList<>();
     private int currentPageIndex = 0;
 
@@ -105,35 +106,26 @@ public class BottomSheetManager {
 
     // swipe / scroll handling
     private static final int AXIS_NONE = 0, AXIS_HORIZONTAL = 1, AXIS_VERTICAL = 2;
-    // vertical movement must be this many times larger than horizontal to count as a scroll;
-    // raise it to make horizontal swipes easier, lower it to make scrolling easier
     private static final float VERTICAL_BIAS = 1.5f;
     private int axisLock = AXIS_NONE;
     private float swipeStartX = 0f;
     private float swipeStartY = 0f;
     private float lastTouchY = 0f;
     private boolean scrolledVertically = false;
-    private int touchSlop;
-    private int swipeThresholdPx;
-    // NEW: field (was a local) so the table cells created later can use the same listener
+    private final int touchSlop;
+    private final int swipeThresholdPx;
+
     private final View.OnTouchListener swipeListener;
 
-    // matches a leading number plus optional unit in a distance key,
-    // e.g. "400 m", "800 m", "1.5 km", "500m". Group 1 = number, group 2 = unit.
     private static final Pattern DISTANCE_KEY_PATTERN =
             Pattern.compile("^\\s*(\\d+(?:\\.\\d+)?)\\s*(km|m)?", Pattern.CASE_INSENSITIVE);
-
     private static final String EMPTY_CELL = "–";
 
-    /**
-     * NEW: everything needed to draw one dataset as a table.
-     * Columns = calculation types, rows = distances (ascending).
-     */
     private static final class ResultPage {
         final String dataset;
-        final List<String> calcNames;     // column titles
-        final List<String> distances;     // row labels, already sorted ascending
-        final List<String[]> rows;        // rows.get(i)[c] = value of calc c at distance i
+        final List<String> calcNames;
+        final List<String> distances;
+        final List<String[]> rows;
 
         ResultPage(String dataset, List<String> calcNames, List<String> distances, List<String[]> rows) {
             this.dataset = dataset;
@@ -143,46 +135,36 @@ public class BottomSheetManager {
         }
     }
 
-    /**
-     * Constructor of the class
-     *
-     * @param fragment             Fragment that hosts the bottom sheet
-     * @param bottomSheetContainer Container of the bottom sheet
-     */
     public BottomSheetManager(Fragment fragment, LinearLayoutCompat bottomSheetContainer) {
-
         trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
         connectionViewModel = new ViewModelProvider(fragment).get(ConnectionViewModel.class);
         userPhoneViewModel = new ViewModelProvider(fragment).get(UserPhoneViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
         exposureFeatureInfoViewModel = new ViewModelProvider(fragment).get(ExposureFeatureInfoViewModel.class);
-
         lifecycleOwner = fragment.getViewLifecycleOwner();
         context = fragment.requireContext();
-
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         swipeThresholdPx = dp(48);
 
         fragmentManager = fragment.getParentFragmentManager();
         sessionExpiredDialog = userPhoneViewModel.getSessionExpiredDialog(fragment);
-
         this.bottomSheetContainer = bottomSheetContainer;
         this.bottomSheetBehavior = BottomSheetBehavior.from(bottomSheetContainer);
         greyOutDecorator = new GreyOutDecorator();
 
         View rootView = fragment.requireView();
+        legendCard = rootView.findViewById(R.id.legend_card);
+        recordingFab = rootView.findViewById(R.id.recording_fab);
+
         tripDetailBubble = rootView.findViewById(R.id.trip_detail_bubble);
         tripDetailIdTv = rootView.findViewById(R.id.trip_detail_id_tv);
         tripDetailDistanceTv = rootView.findViewById(R.id.trip_detail_distance_tv);
         tripDetailBubble.findViewById(R.id.trip_detail_close_bt)
                 .setOnClickListener(v -> trajectoryViewModel.removeAllClicked());
         tripDetailScroll = tripDetailBubble.findViewById(R.id.trip_detail_scroll);
-
-        // NEW: table views from the updated layout
         tripDetailTableHeaderGroup = tripDetailBubble.findViewById(R.id.trip_detail_table_header_group);
         tripDetailTableHeader = tripDetailBubble.findViewById(R.id.trip_detail_table_header);
         tripDetailTableRows = tripDetailBubble.findViewById(R.id.trip_detail_table_rows);
-
         tripDetailPrevBt = tripDetailBubble.findViewById(R.id.trip_detail_prev_bt);
         tripDetailNextBt = tripDetailBubble.findViewById(R.id.trip_detail_next_bt);
         tripDetailPageIndicatorTv = tripDetailBubble.findViewById(R.id.trip_detail_page_indicator_tv);
@@ -190,15 +172,56 @@ public class BottomSheetManager {
         tripDetailPrevBt.setOnClickListener(v -> showPreviousPage());
         tripDetailNextBt.setOnClickListener(v -> showNextPage());
 
-        // The same listener goes on every surface the finger can land on, including the
-        // table cells created later in showCurrentPage(), so swipes work over the whole bubble.
         swipeListener = (v, event) -> handleSwipeTouch(event);
         tripDetailBubble.setOnTouchListener(swipeListener);
         tripDetailScroll.setOnTouchListener(swipeListener);
         tripDetailDistanceTv.setOnTouchListener(swipeListener);
         tripDetailTableRows.setOnTouchListener(swipeListener);
 
+        setupBottomSheetBehaviorCallbacks();
         initBottomSheet();
+    }
+
+    private void setupBottomSheetBehaviorCallbacks() {
+        bottomSheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
+            @Override
+            public void onStateChanged(@NonNull View bottomSheet, int newState) {
+                updateSessionsBottomPadding();
+            }
+
+            @Override
+            public void onSlide(@NonNull View bottomSheet, float slideOffset) {
+                float alpha = slideOffset > 0.5f
+                        ? Math.max(0f, 1f - (slideOffset - 0.5f) * 4f)
+                        : 1f;
+                int visibility = alpha <= 0.02f ? View.INVISIBLE : View.VISIBLE;
+                if (legendCard != null) {
+                    legendCard.setAlpha(alpha);
+                    legendCard.setVisibility(visibility);
+                }
+                if (recordingFab != null) {
+                    recordingFab.setAlpha(alpha);
+                    recordingFab.setVisibility(visibility);
+                }
+                updateSessionsBottomPadding();
+            }
+        });
+    }
+
+    private void updateSessionsBottomPadding() {
+        if (normalBottomSheet == null) return;
+        View sheetRoot = normalBottomSheet.getBottomSheet();
+        RecyclerView sessionsRv = sheetRoot.findViewById(R.id.sessions_recycler_view);
+        if (sessionsRv == null) return;
+
+        int sheetTop = bottomSheetContainer.getTop();
+        int parentHeight = ((View) bottomSheetContainer.getParent()).getHeight();
+        int extraBottom = (sheetTop > 0 && parentHeight > sheetTop)
+                ? Math.max(dp(24), bottomSheetContainer.getHeight() - (parentHeight - sheetTop) + dp(24))
+                : dp(24);
+        sessionsRv.setClipToPadding(false);
+        sessionsRv.setPadding(sessionsRv.getPaddingLeft(), sessionsRv.getPaddingTop(),
+                sessionsRv.getPaddingRight(), extraBottom);
     }
 
     private void initBottomSheet() {
@@ -209,6 +232,7 @@ public class BottomSheetManager {
             if (hasConnection) {
                 setBottomSheet(normalBottomSheet);
                 trajectoryViewModel.getTrajectory(normalBottomSheetViewModel.selectedDate.getValue());
+                bottomSheetContainer.post(this::updateSessionsBottomPadding);
             } else {
                 errorBottomSheet.setErrorType(ErrorBottomSheet.ErrorType.CONNECTION_ERROR);
                 setAndExtendBottomSheet(errorBottomSheet);
@@ -219,10 +243,58 @@ public class BottomSheetManager {
 
     private void initNormalBottomSheet() {
         normalBottomSheet = new NormalBottomSheet(context, trajectoryViewModel);
+        configureDragHandleAndScrolling();
         configureDateSelection();
         configureTrajectoryRetrieval();
         configureSummary();
         configureExposureFeatureInfo();
+    }
+
+    private void configureDragHandleAndScrolling() {
+        View sheetRoot = normalBottomSheet.getBottomSheet();
+        View dragHandle = sheetRoot.findViewById(R.id.drag_handle);
+        if (dragHandle != null) {
+            dragHandle.setOnClickListener(v -> {
+                int state = bottomSheetBehavior.getState();
+                if (state == BottomSheetBehavior.STATE_COLLAPSED) {
+                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+                } else if (state == BottomSheetBehavior.STATE_HALF_EXPANDED) {
+                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+                } else {
+                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+                }
+            });
+        }
+
+        RecyclerView sessionsRv = sheetRoot.findViewById(R.id.sessions_recycler_view);
+        if (sessionsRv != null) {
+            sessionsRv.addOnItemTouchListener(new RecyclerView.OnItemTouchListener() {
+                private float startY;
+
+                @Override
+                public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                    if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                        startY = e.getY();
+                        if (rv.canScrollVertically(-1) || rv.canScrollVertically(1)) {
+                            rv.getParent().requestDisallowInterceptTouchEvent(true);
+                        }
+                    } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                        float dy = e.getY() - startY;
+                        boolean pullingDownAtTop = dy > 0 && !rv.canScrollVertically(-1);
+                        rv.getParent().requestDisallowInterceptTouchEvent(!pullingDownAtTop);
+                    }
+                    return false;
+                }
+
+                @Override
+                public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                }
+
+                @Override
+                public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+                }
+            });
+        }
     }
 
     private void configureTrajectoryRetrieval() {
@@ -233,18 +305,19 @@ public class BottomSheetManager {
         trajectoryViewModel.trajectory.observe(lifecycleOwner, trajectoryByDate -> {
             List<ActivitySummary> activityItemSummaryList = trajectoryByDate.getActivitySummary();
             List<Session> uniqueSessions = trajectoryByDate.getSessions();
-
             if (trajectoryByDate.getDate().equals(normalBottomSheetViewModel.selectedDate.getValue())) {
                 normalBottomSheet.updateSummaryView(activityItemSummaryList);
-
-                // no clickedSegment when trajectory just loaded
                 normalBottomSheet.updateSessionsList(uniqueSessions, null);
+                bottomSheetContainer.post(this::updateSessionsBottomPadding);
             }
         });
 
         trajectoryViewModel.clickedSegment.observe(lifecycleOwner, clickedId -> {
             normalBottomSheet.highlightClickedSegment(clickedId);
             updateTripDetailBubble(clickedId);
+            if (clickedId != null && bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
+                bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+            }
         });
     }
 
@@ -266,6 +339,7 @@ public class BottomSheetManager {
             currentPageIndex = 0;
             showCurrentPage();
         });
+
         exposureFeatureInfoViewModel.error.observe(lifecycleOwner, error -> {
             if (error != null) {
                 resultPages.clear();
@@ -277,28 +351,20 @@ public class BottomSheetManager {
     private void buildResultPages(JSONObject results) throws JSONException {
         Iterator<String> datasetKeys = results.keys();
         while (datasetKeys.hasNext()) {
-            String dataset = datasetKeys.next();                 // "Green space"
-            JSONObject calcs = results.optJSONObject(dataset);   // {"Area": {...}, "Count": {...}}
-            if (calcs == null) continue;                         // skip non-object entries such as flags
+            String dataset = datasetKeys.next();
+            JSONObject calcs = results.optJSONObject(dataset);
+            if (calcs == null) continue;
             resultPages.add(parseDataset(dataset, calcs));
         }
     }
 
-    // Keys the agent adds purely for presentation; they are never data.
     private static boolean isControlKey(String key) {
         return key.equals("collapse") || key.equals("display_order");
     }
 
-    // Strict match for a whole distance label such as "400 m" or "1.5 km". It is deliberately
-    // strict so that time-range labels like "2026-10-30 10:00 – ..." or filter keys like
-    // "year=2021" are never mistaken for a distance.
     private static final Pattern STRICT_DISTANCE_KEY =
             Pattern.compile("^\\s*\\d+(?:\\.\\d+)?\\s*(?:km|m)\\s*$", Pattern.CASE_INSENSITIVE);
 
-    /**
-     * One value from the agent response together with the chain of JSON keys leading to it,
-     * e.g. path = ["year=2021", "height=h1", "Mean GVI", "400 m"], value = "0.4200".
-     */
     private static final class Leaf {
         final List<String> path;
         final String value;
@@ -309,44 +375,26 @@ public class BottomSheetManager {
         }
     }
 
-    /**
-     * NEW: walks the response tree to any depth and collects every value. The agent now nests
-     * results as  dataset > [filters like year=...] > [column groups like year=/height=] >
-     * calculation > distance > [time range] > value, and the number of levels differs per
-     * dataset, so the app must not assume a fixed depth.
-     */
-    private void collectLeaves(JSONObject node, List<String> path, List<Leaf> out) {
+    private void collectLeaves(JSONObject node, List<String> path, List<Leaf> out) throws JSONException {
         Iterator<String> keys = node.keys();
         while (keys.hasNext()) {
             String key = keys.next();
-            if (isControlKey(key)) continue;            // skip "collapse" / "display_order"
-            Object child = node.opt(key);
-            if (child == null || child == JSONObject.NULL || child instanceof JSONArray) continue;
-
+            if (isControlKey(key)) continue;
+            Object val = node.get(key);
             List<String> next = new ArrayList<>(path);
             next.add(key);
-            if (child instanceof JSONObject) {
-                collectLeaves((JSONObject) child, next, out);
+            if (val instanceof JSONObject) {
+                collectLeaves((JSONObject) val, next, out);
             } else {
-                out.add(new Leaf(next, String.valueOf(child)));
+                out.add(new Leaf(next, String.valueOf(val)));
             }
         }
     }
 
-    /**
-     * CHANGED: turns one dataset into table data, whatever the nesting depth.
-     *
-     * For every value, the first key in its path that looks like a distance ("400 m") or is "-"
-     * (no distance) becomes the ROW. Everything before it (filters, year/height groups and the
-     * calculation name) becomes the COLUMN title, one part per line. Anything after it (a
-     * time-range label) is ignored.
-     * Rows are sorted ascending by distance; a missing combination shows a dash.
-     */
     private ResultPage parseDataset(String dataset, JSONObject root) throws JSONException {
         List<Leaf> leaves = new ArrayList<>();
         collectLeaves(root, new ArrayList<>(), leaves);
 
-        // entries[i] = {column title, row label, value}
         List<String[]> entries = new ArrayList<>();
         for (Leaf leaf : leaves) {
             int distanceIdx = -1;
@@ -357,22 +405,19 @@ public class BottomSheetManager {
                     break;
                 }
             }
-
             String column;
             String row;
-            if (distanceIdx < 0) {                       // no distance level at all
+            if (distanceIdx < 0) {
                 column = String.join("\n", leaf.path);
                 row = "-";
             } else {
                 column = String.join("\n", leaf.path.subList(0, distanceIdx));
                 row = leaf.path.get(distanceIdx);
-                // any keys after the distance (time-range labels) are intentionally not shown
             }
-            if (column.isEmpty()) column = dataset;      // value sits directly under the distance
+            if (column.isEmpty()) column = dataset;
             entries.add(new String[]{column, row, cleanValue(leaf.value)});
         }
 
-        // stable, de-duplicated column order
         List<String> calcNames = new ArrayList<>();
         for (String[] e : entries) if (!calcNames.contains(e[0])) calcNames.add(e[0]);
         calcNames.sort(String.CASE_INSENSITIVE_ORDER);
@@ -386,30 +431,24 @@ public class BottomSheetManager {
                 valuesByDistance.put(e[1], cells);
             }
             int col = calcNames.indexOf(e[0]);
-            if (cells[col].equals(EMPTY_CELL)) cells[col] = e[2];   // several time ranges: keep the first
+            if (cells[col].equals(EMPTY_CELL)) cells[col] = e[2];
         }
 
         List<String> distances = new ArrayList<>(valuesByDistance.keySet());
-        distances.sort(BottomSheetManager::compareDistanceKeys);   // ascending: 400 m, 800 m, 1.5 km
-
+        distances.sort(BottomSheetManager::compareDistanceKeys);
         List<String[]> rows = new ArrayList<>();
         for (String distance : distances) rows.add(valuesByDistance.get(distance));
 
         return new ResultPage(dataset, calcNames, distances, rows);
     }
 
-    /**
-     * CHANGED: draws the current dataset as a table. The header (column titles) lives outside the
-     * scroll view so it stays pinned; the rows scroll underneath it.
-     */
     private void showCurrentPage() {
         boolean hasPages = !resultPages.isEmpty();
         tripDetailPrevBt.setEnabled(hasPages);
         tripDetailNextBt.setEnabled(hasPages);
-
         tripDetailTableHeader.removeAllViews();
         tripDetailTableRows.removeAllViews();
-        tripDetailScroll.scrollTo(0, 0);   // each page starts at the top
+        tripDetailScroll.scrollTo(0, 0);
 
         if (!hasPages) {
             tripDetailTableHeaderGroup.setVisibility(View.GONE);
@@ -433,22 +472,15 @@ public class BottomSheetManager {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setPadding(0, dp(6), 0, dp(6));
             row.setOnTouchListener(swipeListener);
-
             row.addView(makeCell(page.distances.get(r), false, false));
             for (String value : page.rows.get(r)) {
                 row.addView(makeCell(value, false, true));
             }
             tripDetailTableRows.addView(row);
         }
-
         tripDetailPageIndicatorTv.setText(page.dataset);
     }
 
-    /**
-     * NEW: one table cell. Header and body cells use identical weights, which is what keeps the
-     * pinned header aligned with the scrolling rows. The first column (distance) is left
-     * aligned; the value columns are right aligned so numbers line up.
-     */
     private TextView makeCell(String text, boolean header, boolean valueColumn) {
         TextView tv = new TextView(context);
         tv.setLayoutParams(new LinearLayout.LayoutParams(
@@ -458,7 +490,7 @@ public class BottomSheetManager {
         tv.setGravity(valueColumn ? Gravity.END : Gravity.START);
         if (header) {
             tv.setTypeface(null, Typeface.BOLD);
-            tv.setAlpha(0.7f);   // softer than the data without hard-coding a colour (works in dark mode)
+            tv.setAlpha(0.7f);
         }
         tv.setOnTouchListener(swipeListener);
         return tv;
@@ -471,16 +503,12 @@ public class BottomSheetManager {
     private void updateTripDetailBubble(TrajectorySegment clickedSegment) {
         if (clickedSegment != null) {
             tripDetailIdTv.setText("Loading…");
-
-            // CHANGED: clear the previous trip's table while the new one loads
             tripDetailTableHeaderGroup.setVisibility(View.GONE);
             tripDetailTableHeader.removeAllViews();
             tripDetailTableRows.removeAllViews();
             tripDetailDistanceTv.setVisibility(View.VISIBLE);
             tripDetailDistanceTv.setText("");
-
             tripDetailBubble.setVisibility(View.VISIBLE);
-
             pendingSegment = clickedSegment;
             exposureFeatureInfoViewModel.getTimelineResults(clickedSegment.getStartTime(), clickedSegment.getEndTime());
         } else {
@@ -493,7 +521,6 @@ public class BottomSheetManager {
         for (int i = 0; i < groups.length(); i++) {
             JSONObject group = groups.getJSONObject(i);
             if (group.getInt("trip") != tripIndex) continue;
-
             if (tripIndex == 0) {
                 Instant groupStart = Instant.parse(group.getString("lowerbound"));
                 Instant groupEnd = Instant.parse(group.getString("upperbound"));
@@ -510,13 +537,10 @@ public class BottomSheetManager {
     private void configureDateSelection() {
         normalBottomSheet.getBottomSheet().findViewById(R.id.date_left_bt).setOnClickListener(view ->
                 normalBottomSheetViewModel.setToLastDate());
-
         normalBottomSheet.getBottomSheet().findViewById(R.id.date_right_bt).setOnClickListener(view ->
                 normalBottomSheetViewModel.setToNextDate());
 
         normalBottomSheet.getBottomSheet().findViewById(R.id.date_picker_layout).setOnClickListener(view -> {
-            // NEW: if the dates never loaded, try again now (a no-op while a request is already running
-            // or when today's result is cached)
             if (normalBottomSheetViewModel.datesWithTrajectory.getValue() == null) {
                 normalBottomSheetViewModel.getDatesWithTrajectory(currentUtcOffsetId());
             }
@@ -528,8 +552,9 @@ public class BottomSheetManager {
             ((TextView) normalBottomSheet.getBottomSheet().findViewById(R.id.date_tv)).setText(selectedDate.format(formatter));
             connectionViewModel.checkNetworkConnection();
         });
+
         normalBottomSheetViewModel.datesWithTrajectory.observe(lifecycleOwner, dates -> greyOutDecorator.setDatesWithTrajectory(dates));
-        // NEW: tell the user (and log) when every retry has failed, instead of silently doing nothing
+
         normalBottomSheetViewModel.datesError.observe(lifecycleOwner, error -> {
             if (error == null) return;
             LOGGER.error("Could not load dates with data", error);
@@ -559,12 +584,9 @@ public class BottomSheetManager {
             if (error == null) {
                 return;
             }
-
             if (error instanceof AccountException) {
-                // session expired
                 sessionExpiredDialog.show();
             } else if (error instanceof SensorCollectionStateException) {
-                // retry getting user id, device id and registration
                 errorBottomSheet.setErrorType(ErrorBottomSheet.ErrorType.ACCOUNT_ERROR);
             }
         });
@@ -573,9 +595,7 @@ public class BottomSheetManager {
             if (error == null) {
                 return;
             }
-
             if (error instanceof AccountException) {
-                // retry register phone to user
                 errorBottomSheet.setErrorType(ErrorBottomSheet.ErrorType.ACCOUNT_ERROR);
             } else {
                 LOGGER.error("error in trajectory retrieval: " + error.getMessage(), error);
@@ -601,22 +621,15 @@ public class BottomSheetManager {
 
     private String formatTripKey(String key) {
         if (key == null || key.isEmpty()) return key;
-        //remove number from stay, stay currently starts on 1 for whichever timeframe is queried
         if (key.startsWith("stay")) return "Stay";
         String withSpace = key.replace("-", " ");
         return Character.toUpperCase(withSpace.charAt(0)) + withSpace.substring(1);
     }
 
     private String cleanValue(String rawValue) {
-        // Strips a trailing unit bracket like " [-]" or " [m]"
         return rawValue.replaceAll("\\s*\\[.*?]\\s*$", "").trim();
     }
 
-    /**
-     * Converts a distance key from the JSON into metres so keys can be compared numerically.
-     * Sorting the raw strings would put "1000" before "200", so we parse instead.
-     * Keys with no leading number sort to the end rather than crashing.
-     */
     private static double distanceInMetres(String key) {
         Matcher m = DISTANCE_KEY_PATTERN.matcher(key);
         if (!m.find()) return Double.MAX_VALUE;
@@ -625,8 +638,6 @@ public class BottomSheetManager {
         return (unit != null && unit.equalsIgnoreCase("km")) ? value * 1000 : value;
     }
 
-    // Ascending by distance; ties (or unparseable keys) fall back to plain string order
-    // so the result is always deterministic.
     private static int compareDistanceKeys(String a, String b) {
         int byDistance = Double.compare(distanceInMetres(a), distanceInMetres(b));
         return byDistance != 0 ? byDistance : a.compareTo(b);
@@ -644,11 +655,6 @@ public class BottomSheetManager {
         showCurrentPage();
     }
 
-    /**
-     * Raw (screen) coordinates are used throughout, so it doesn't matter which view receives the
-     * event or how far the text has scrolled. Vertical drags scroll the table by hand; clearly
-     * horizontal swipes change the dataset.
-     */
     private boolean handleSwipeTouch(MotionEvent event) {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
@@ -659,17 +665,14 @@ public class BottomSheetManager {
                 scrolledVertically = false;
                 tripDetailScroll.requestDisallowInterceptTouchEvent(true);
                 return true;
-
             case MotionEvent.ACTION_MOVE:
                 float dx = event.getRawX() - swipeStartX;
                 float dy = event.getRawY() - swipeStartY;
-
                 if (axisLock == AXIS_NONE
                         && (Math.abs(dx) > touchSlop * 2 || Math.abs(dy) > touchSlop * 2)) {
                     axisLock = Math.abs(dy) > Math.abs(dx) * VERTICAL_BIAS
                             ? AXIS_VERTICAL : AXIS_HORIZONTAL;
                 }
-
                 if (axisLock == AXIS_VERTICAL) {
                     int before = tripDetailScroll.getScrollY();
                     tripDetailScroll.scrollBy(0, Math.round(lastTouchY - event.getRawY()));
@@ -677,22 +680,18 @@ public class BottomSheetManager {
                 }
                 lastTouchY = event.getRawY();
                 return true;
-
             case MotionEvent.ACTION_UP:
                 float diffX = event.getRawX() - swipeStartX;
                 float diffY = event.getRawY() - swipeStartY;
-
                 boolean farEnough = Math.abs(diffX) > swipeThresholdPx;
                 boolean isSwipe = farEnough && (axisLock == AXIS_HORIZONTAL
                         || (!scrolledVertically && Math.abs(diffX) > Math.abs(diffY)));
-
                 if (isSwipe) {
                     if (diffX < 0) showNextPage(); else showPreviousPage();
                 }
                 axisLock = AXIS_NONE;
                 tripDetailScroll.requestDisallowInterceptTouchEvent(false);
                 return true;
-
             case MotionEvent.ACTION_CANCEL:
                 axisLock = AXIS_NONE;
                 tripDetailScroll.requestDisallowInterceptTouchEvent(false);

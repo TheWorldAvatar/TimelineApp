@@ -73,7 +73,7 @@ public class TrajectoryManager {
     private static final double OTHER_SESSION_OPACITY = 0.3;
 
     private enum ColorMode { TRIP, ACTIVITY }
-    private ColorMode colorMode = ColorMode.TRIP;
+    private ColorMode colorMode = ColorMode.ACTIVITY;
     private TrajectoryByDate currentTrajectory;
     private ActivityTrajectory activityTrajectory;   // activity-split data for the current date
     private LocalDate activityFetchDate;             // date a fetch was already requested for
@@ -157,9 +157,16 @@ public class TrajectoryManager {
         String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
         this.selectedColor = selectedColor;
 
-        // TrajectoryManager's click listener — back to just passing the date
-        fragment.requireView().findViewById(R.id.run_trip_agent_button)
-                .setOnClickListener(v -> tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue()));
+        // Run trip & exposure calculation when requested from Advanced Options
+        displayOptionsViewModel.runCalculationRequested.observe(fragment.getViewLifecycleOwner(), requested -> {
+            if (Boolean.TRUE.equals(requested)) {
+                displayOptionsViewModel.clearRunCalculationRequest();
+                tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue());
+            }
+        });
+
+        tripAgentViewModel.isRunning.observe(fragment.getViewLifecycleOwner(), running ->
+                displayOptionsViewModel.setCalculationRunning(Boolean.TRUE.equals(running)));
 
         // run the trip agent and then the exposure calculation every 5 minutes while this screen is visible
         new AutoTripRunner(fragment.getViewLifecycleOwner(), tripAgentViewModel, normalBottomSheetViewModel);
@@ -775,12 +782,7 @@ public class TrajectoryManager {
                 ? new String[]{activityColors.get("walking"), activityColors.get("still"),
                 activityColors.get("vehicle"), activityColors.get("bike"), activityColors.get("lost_signal")}
                 : new String[]{tripColors.get("0"), tripColors.get("default"), null, null, null};
-        // the card grows when it shows two lines, lift it a little so it stays clear of the sheet
-        View legendCard = legendRoot.findViewById(R.id.legend_card);
-        if (legendCard != null) {
-            float density = legendRoot.getResources().getDisplayMetrics().density;
-            legendCard.setTranslationY((activity ? -148 : -108) * density);
-        }
+
         int[] rows = {R.id.legend_row_1, R.id.legend_row_2, R.id.legend_row_3, R.id.legend_row_4, R.id.legend_row_5};
         int[] swatches = {R.id.legend_swatch_1, R.id.legend_swatch_2, R.id.legend_swatch_3, R.id.legend_swatch_4, R.id.legend_swatch_5};
         int[] texts = {R.id.legend_text_1, R.id.legend_text_2, R.id.legend_text_3, R.id.legend_text_4, R.id.legend_text_5};
@@ -794,6 +796,15 @@ public class TrajectoryManager {
             legendRoot.findViewById(swatches[i]).setBackgroundTintList(
                     ColorStateList.valueOf(Color.parseColor(colors[i])));
             ((TextView) legendRoot.findViewById(texts[i])).setText(labels[i]);
+        }
+
+        // Keep the bottom of the legend card 16dp above the bottom sheet regardless of 1-row vs 3-row height
+        View legendCard = legendRoot.findViewById(R.id.legend_card);
+        if (legendCard != null) {
+            legendCard.post(() -> {
+                float gapPx = 16f * legendCard.getResources().getDisplayMetrics().density;
+                legendCard.setTranslationY(-(legendCard.getHeight() / 2f + gapPx));
+            });
         }
     }
 

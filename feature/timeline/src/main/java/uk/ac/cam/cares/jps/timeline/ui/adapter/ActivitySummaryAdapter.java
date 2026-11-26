@@ -55,11 +55,15 @@ public class ActivitySummaryAdapter extends RecyclerView.Adapter<ActivitySummary
         holder.timeSummary.setText(summaryItem.getTimeSummary());
 
         if (validActivities.contains(summaryItem.getActivityType())) {
+            holder.itemView.setVisibility(View.VISIBLE);
+            holder.itemView.setLayoutParams(new RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             holder.activityType.setVisibility(View.VISIBLE);
+            holder.totalDistance.setVisibility(View.VISIBLE);
+            holder.timeSummary.setVisibility(View.VISIBLE);
         } else {
-            holder.activityType.setVisibility(View.GONE);
-            holder.totalDistance.setVisibility(View.GONE);
-            holder.timeSummary.setVisibility(View.GONE);
+            holder.itemView.setVisibility(View.GONE);
+            holder.itemView.setLayoutParams(new RecyclerView.LayoutParams(0, 0));
         }
 
     }

@@ -29,11 +29,6 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.navigation.fragment.NavHostFragment;
 
-// import com.google.android.gms.location.FusedLocationProviderClient;  // removed: Google Play services no longer used
-// import com.google.android.gms.location.LocationCallback;  // removed: Google Play services no longer used
-// import com.google.android.gms.location.LocationRequest;  // removed: Google Play services no longer used
-// import com.google.android.gms.location.LocationResult;  // removed: Google Play services no longer used
-// import com.google.android.gms.location.LocationServices;  // removed: Google Play services no longer used
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.mapbox.geojson.Point;
@@ -52,9 +47,9 @@ import java.util.List;
 import dagger.hilt.android.AndroidEntryPoint;
 import uk.ac.cam.cares.jps.sensor.permission.PermissionHelper;
 import uk.ac.cam.cares.jps.sensor.source.handler.SensorType;
-
 import uk.ac.cam.cares.jps.sensor.ui.RecordingViewModel;
 import uk.ac.cam.cares.jps.timeline.ui.manager.BottomSheetManager;
+import uk.ac.cam.cares.jps.timeline.ui.manager.DatasetLayerManager;
 import uk.ac.cam.cares.jps.timeline.ui.manager.TrajectoryManager;
 import uk.ac.cam.cares.jps.timelinemap.R;
 import uk.ac.cam.cares.jps.timelinemap.databinding.FragmentTimelineBinding;
@@ -62,32 +57,22 @@ import uk.ac.cam.cares.jps.ui.impl.tooltip.TooltipSequence;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.AppPreferenceViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.TooltipTriggerViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.UserAccountViewModel;
-import uk.ac.cam.cares.jps.timeline.ui.manager.DatasetLayerManager;
-
 
 @AndroidEntryPoint
 public class TimelineFragment extends Fragment {
-
     private FragmentTimelineBinding binding;
     private final Logger LOGGER = Logger.getLogger(TimelineFragment.class);
-
     private MapView mapView;
     private BottomSheetBehavior<LinearLayoutCompat> bottomSheetBehavior;
     private ScaleBarPlugin scaleBarPlugin;
     private CompassPlugin compassPlugin;
-
-    // private FusedLocationProviderClient fusedLocationClient;   // gms, removed
-    // private LocationCallback locationCallback;                 // gms, removed
-    private CancellationSignal locationCancellation;               // cancels the one-shot platform location request
-    private LocationListener singleUpdateListener;                 // only used on API < 30
-
+    private CancellationSignal locationCancellation;
+    private LocationListener singleUpdateListener;
     private RecordingViewModel recordingStateViewModel;
     private TooltipTriggerViewModel tooltipTriggerViewModel;
     private UserAccountViewModel accountViewModel;
     private PermissionHelper permissionHelper;
-
     private DatasetLayerManager datasetLayerManager;
-
     private TrajectoryManager trajectoryManager;
 
     @Nullable
@@ -104,12 +89,9 @@ public class TimelineFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
 
         mapView = binding.mapView;
-        // fusedLocationClient = LocationServices.getFusedLocationProviderClient(requireContext());  // gms, removed
-
         recordingStateViewModel = new ViewModelProvider(this).get(RecordingViewModel.class);
         tooltipTriggerViewModel = new ViewModelProvider(requireActivity()).get(TooltipTriggerViewModel.class);
         accountViewModel = new ViewModelProvider(this).get(UserAccountViewModel.class);
-
         permissionHelper = new PermissionHelper(this);
 
         setupAppPreference();
@@ -119,22 +101,30 @@ public class TimelineFragment extends Fragment {
 
         trajectoryManager = new TrajectoryManager(this, mapView);
         new BottomSheetManager(this, binding.bottomSheetContainer);
-
         datasetLayerManager = new DatasetLayerManager(this, mapView);
-        binding.datasetLayerButton.setOnClickListener(v -> datasetLayerManager.toggleDatasetLayer());
 
         setupTripDetailScroll();
+
+        float ornamentTopMarginPx = 12f * getResources().getDisplayMetrics().density;
 
         compassPlugin = mapView.getPlugin(Plugin.MAPBOX_COMPASS_PLUGIN_ID);
         if (compassPlugin != null) {
             compassPlugin.setEnabled(true);
             compassPlugin.updateSettings(settings -> {
-                settings.setMarginTop(400);
+                settings.setMarginTop(ornamentTopMarginPx);
                 return null;
             });
         }
 
         scaleBarPlugin = mapView.getPlugin(Plugin.MAPBOX_SCALEBAR_PLUGIN_ID);
+        if (scaleBarPlugin != null) {
+            scaleBarPlugin.setEnabled(true);
+            scaleBarPlugin.updateSettings(settings -> {
+                settings.setIsMetricUnits(true);
+                settings.setMarginTop(ornamentTopMarginPx);
+                return null;
+            });
+        }
 
         recordingStateViewModel.getHasAccountError().observe(getViewLifecycleOwner(), hasError -> {
             if (Boolean.FALSE.equals(hasError)) {
@@ -148,24 +138,20 @@ public class TimelineFragment extends Fragment {
 
     private void setupAppPreference() {
         AppPreferenceViewModel appPreferenceViewModel = new ViewModelProvider(requireActivity()).get(AppPreferenceViewModel.class);
-
         appPreferenceViewModel.getSkipTooltips().observe(getViewLifecycleOwner(), skipTooltips -> {
             if (skipTooltips != null && !skipTooltips) {
                 tooltipTriggerViewModel.requestTooltipTrigger();
             }
         });
-
         appPreferenceViewModel.getAutoStart().observe(getViewLifecycleOwner(), shouldAutoStart -> {
             if (shouldAutoStart != null && shouldAutoStart) {
                 autoStartRecordingIfPossible();
             }
         });
-
         appPreferenceViewModel.getLocationPermissionPrompted().observe(getViewLifecycleOwner(), isLocationPermissionPrompted -> {
             if (isLocationPermissionPrompted != null && isLocationPermissionPrompted) {
                 return;
             }
-
             appPreferenceViewModel.setLocationPermissionPrompted();
             handleInitialLocationPrompt();
         });
@@ -184,7 +170,6 @@ public class TimelineFragment extends Fragment {
         View userIcon = binding.mapTopAppbar.findViewById(R.id.user_menu_item);
         View recordingFab = binding.recordingFab;
         View bottomSheet = binding.bottomSheetContainer;
-
         ViewTreeObserver observer = bottomSheet.getViewTreeObserver();
         observer.addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
             @Override
@@ -197,9 +182,9 @@ public class TimelineFragment extends Fragment {
         });
     }
 
-
     private void setupRecordingButton() {
         FloatingActionButton fab = binding.recordingFab;
+
         recordingStateViewModel.getIsRecording().observe(getViewLifecycleOwner(), isRecording -> {
             if (isRecording != null) {
                 fab.setImageResource(isRecording ? R.drawable.ic_stop : R.drawable.ic_start);
@@ -213,13 +198,11 @@ public class TimelineFragment extends Fragment {
             if (Boolean.TRUE.equals(isRecording)) {
                 recordingStateViewModel.stopRecording();
             } else {
-                // use the sensors toggled in Sensor Settings rather than forcing all on
                 List<SensorType> sensors = recordingStateViewModel.getSelectedSensors().getValue();
                 if (sensors == null || sensors.isEmpty()) {
                     Toast.makeText(requireContext(), "No sensors enabled. Enable sensors in Sensor Settings first.", Toast.LENGTH_SHORT).show();
                     return;
                 }
-
                 List<String> permissions = new ArrayList<>();
                 if (sensors.contains(SensorType.LOCATION))
                     permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
@@ -228,12 +211,10 @@ public class TimelineFragment extends Fragment {
                 if (sensors.contains(SensorType.ACTIVITY))
                     permissions.add(Manifest.permission.ACTIVITY_RECOGNITION);
                 permissions.add(Manifest.permission.POST_NOTIFICATIONS);
-
                 permissionHelper.requestPermissionsInChain(permissions, recordingStateViewModel::startRecording);
             }
         });
     }
-
 
     private void handleInitialLocationPrompt() {
         permissionHelper.requestPermissionsInChain(
@@ -250,12 +231,6 @@ public class TimelineFragment extends Fragment {
         );
     }
 
-
-    /**
-     * Centres the map on a single location fix using the platform {@link LocationManager}
-     * (no Google Play services). Provider preference: FUSED_PROVIDER (API 31+, the platform fused
-     * provider), then GPS, then NETWORK. Falls back to the default camera if nothing is available.
-     */
     @SuppressLint("MissingPermission")
     private void getAndCenterUserLocation() {
         LocationManager lm = (LocationManager) requireContext().getSystemService(Context.LOCATION_SERVICE);
@@ -265,15 +240,12 @@ public class TimelineFragment extends Fragment {
             return;
         }
         cancelLocationRequest();
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             locationCancellation = new CancellationSignal();
             lm.getCurrentLocation(provider, locationCancellation,
                     ContextCompat.getMainExecutor(requireContext()), this::centerOnLocationOrDefault);
             return;
         }
-
-        // API 26-29: use a cached fix if there is one, otherwise ask for a single update
         Location last = lm.getLastKnownLocation(provider);
         if (last != null) {
             centerOnLocationOrDefault(last);
@@ -285,7 +257,7 @@ public class TimelineFragment extends Fragment {
 
     private String pickProvider(LocationManager lm) {
         if (lm == null) return null;
-        List<String> candidates = new java.util.ArrayList<>();
+        List<String> candidates = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) candidates.add(LocationManager.FUSED_PROVIDER);
         candidates.add(LocationManager.GPS_PROVIDER);
         candidates.add(LocationManager.NETWORK_PROVIDER);
@@ -300,7 +272,7 @@ public class TimelineFragment extends Fragment {
     }
 
     private void centerOnLocationOrDefault(@Nullable Location loc) {
-        if (!isAdded() || mapView == null) return; // view already gone
+        if (!isAdded() || mapView == null) return;
         if (loc != null) {
             mapView.getMapboxMap().setCamera(
                     new CameraOptions.Builder()
@@ -329,27 +301,6 @@ public class TimelineFragment extends Fragment {
         super.onDestroyView();
     }
 
-    // ---- previous gms implementation, kept for reference ----
-    //     @SuppressLint("MissingPermission")
-    //     private void getAndCenterUserLocation() {
-    //         LocationRequest locationRequest = LocationRequest.create().setPriority(LocationRequest.PRIORITY_HIGH_ACCURACY).setInterval(1000).setNumUpdates(1);
-    //         locationCallback = new LocationCallback() {
-    //             @Override
-    //             public void onLocationResult(@NonNull LocationResult result) {
-    //                 Location loc = result.getLastLocation();
-    //                 if (loc != null) {
-    //                     mapView.getMapboxMap().setCamera(
-    //                             new CameraOptions.Builder()
-    //                                     .center(Point.fromLngLat(loc.getLongitude(), loc.getLatitude()))
-    //                                     .zoom(15.0).build());
-    //                 } else {
-    //                     setCameraToDefaultLocation();
-    //                 }
-    //             }
-    //         };
-    //         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
-    //     }
-
     private void setCameraToDefaultLocation() {
         CameraOptions defaultCam = new CameraOptions.Builder()
                 .center(Point.fromLngLat(103.7764, 1.2966)).zoom(13.0).build();
@@ -359,7 +310,6 @@ public class TimelineFragment extends Fragment {
     private void setupMenu() {
         binding.mapTopAppbar.setNavigationOnClickListener(view ->
                 NavHostFragment.findNavController(this).navigateUp());
-
         binding.mapTopAppbar.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == R.id.user_menu_item) {
                 UserDialogFragment.show(getParentFragmentManager());
@@ -396,7 +346,6 @@ public class TimelineFragment extends Fragment {
     }
 
     private void autoStartRecordingIfPossible() {
-        // respect the sensors toggled in Sensor Settings
         List<SensorType> sensors = recordingStateViewModel.getSelectedSensors().getValue();
         if (sensors == null || sensors.isEmpty()) {
             Toast.makeText(requireContext(), "Auto-start skipped: no sensors enabled in Sensor Settings", Toast.LENGTH_SHORT).show();

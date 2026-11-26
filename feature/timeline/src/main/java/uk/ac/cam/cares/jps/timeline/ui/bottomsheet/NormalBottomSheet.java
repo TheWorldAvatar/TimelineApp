@@ -1,28 +1,16 @@
-
-
 package uk.ac.cam.cares.jps.timeline.ui.bottomsheet;
-
-import static com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_COLLAPSED;
-import static com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED;
-import static com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_HALF_EXPANDED;
 
 import android.content.Context;
 import android.util.Log;
-import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.widget.LinearLayoutCompat;
-import androidx.core.view.ViewCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
-import com.google.android.material.bottomsheet.BottomSheetBehavior;
 
 import java.util.List;
 
@@ -38,45 +26,47 @@ import uk.ac.cam.cares.jps.timelinemap.R;
  * Bottom sheet to be shown when there is no error
  */
 public class NormalBottomSheet extends BottomSheet {
-
     private RecyclerView summaryRecyclerView;
     private ActivitySummaryAdapter summaryAdapter;
     private RecyclerView sessionsRecyclerView;
     private SessionsAdapter sessionsAdapter;
     private SegmentClickInterface segmentClickInterface;
 
-
     public NormalBottomSheet(Context context,
                              SegmentClickInterface segmentClickInterface) {
         super(context);
         init(context);
-
         this.segmentClickInterface = segmentClickInterface;
     }
 
     @Override
     void init(Context context) {
         bottomSheet = (LinearLayoutCompat) LayoutInflater.from(context).inflate(R.layout.bottom_sheet_widget, null);
-
         sessionsAdapter = new SessionsAdapter(segmentClickInterface);
         sessionsRecyclerView = bottomSheet.findViewById(R.id.sessions_recycler_view);
         sessionsRecyclerView.setAdapter(sessionsAdapter);
         sessionsRecyclerView.setLayoutManager(new LinearLayoutManager(context));
 
-        // TODO: not sure whether height measurement can break the scrolling
-//        final float maxHeightPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 500, context.getResources().getDisplayMetrics());
-//
-//        sessionsRecyclerView.getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
-//            @Override
-//            public void onGlobalLayout() {
-//                if (sessionsRecyclerView.getHeight() > maxHeightPx) {
-//                    ViewGroup.LayoutParams params = sessionsRecyclerView.getLayoutParams();
-//                    params.height = (int) maxHeightPx;
-//                    sessionsRecyclerView.setLayoutParams(params);
-//                }
-//                sessionsRecyclerView.getViewTreeObserver().removeOnGlobalLayoutListener(this);
-//            }
-//        });
+        // Allow scrolling through all trip segments even when the sheet is Half-Expanded
+        sessionsRecyclerView.addOnItemTouchListener(new RecyclerView.OnItemTouchListener() {
+            @Override
+            public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                if (e.getAction() == MotionEvent.ACTION_DOWN || e.getAction() == MotionEvent.ACTION_MOVE) {
+                    if (rv.canScrollVertically(1) || rv.canScrollVertically(-1)) {
+                        rv.getParent().requestDisallowInterceptTouchEvent(true);
+                    }
+                }
+                return false;
+            }
+
+            @Override
+            public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+            }
+
+            @Override
+            public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
+            }
+        });
 
         summaryAdapter = new ActivitySummaryAdapter();
         summaryRecyclerView = bottomSheet.findViewById(R.id.summary_recycler_view);
@@ -84,20 +74,34 @@ public class NormalBottomSheet extends BottomSheet {
         summaryRecyclerView.setLayoutManager(new LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false));
     }
 
+    /**
+     * Adjusts bottom padding of the sessions list to match the off-screen portion
+     * of the sheet so the final trip segment always scrolls into view.
+     */
+    public void updateSessionsBottomPadding(int offscreenBottomPx) {
+        if (sessionsRecyclerView == null) return;
+        int extraPx = Math.round(24 * sessionsRecyclerView.getResources().getDisplayMetrics().density);
+        int bottomPad = Math.max(extraPx, offscreenBottomPx + extraPx);
+        if (sessionsRecyclerView.getPaddingBottom() != bottomPad) {
+            sessionsRecyclerView.setPadding(
+                    sessionsRecyclerView.getPaddingLeft(),
+                    sessionsRecyclerView.getPaddingTop(),
+                    sessionsRecyclerView.getPaddingRight(),
+                    bottomPad
+            );
+        }
+    }
+
     public void showFetchingAnimation(boolean isFetching) {
         if (isFetching) {
             sessionsAdapter = new SessionsAdapter(segmentClickInterface);
             sessionsRecyclerView.setAdapter(sessionsAdapter);
-
             summaryAdapter = new ActivitySummaryAdapter();
             summaryRecyclerView.setAdapter(summaryAdapter);
-
             getBottomSheet().findViewById(R.id.progress_linear).setVisibility(View.VISIBLE);
             getBottomSheet().findViewById(R.id.trajectory_info_tv).setVisibility(View.GONE);
             sessionsRecyclerView.setVisibility(View.GONE);
             summaryRecyclerView.setVisibility(View.GONE);
-
-
         } else {
             getBottomSheet().findViewById(R.id.progress_linear).setVisibility(View.GONE);
             summaryRecyclerView.setVisibility(View.VISIBLE);
@@ -108,7 +112,6 @@ public class NormalBottomSheet extends BottomSheet {
     public void updateSessionsList(List<Session> sessionList, TrajectorySegment clickedSegment) {
         if (sessionList != null && !sessionList.isEmpty()) {
             sessionsAdapter.setUniqueSessionsList(sessionList, clickedSegment);
-
             TextView trajectoryTextView = getBottomSheet().findViewById(R.id.trajectory_info_tv);
             if (trajectoryTextView != null) {
                 trajectoryTextView.setVisibility(View.GONE);
@@ -121,7 +124,6 @@ public class NormalBottomSheet extends BottomSheet {
     public void updateSummaryView(List<ActivitySummary> summaryActivityItemList) {
         if (summaryActivityItemList != null && !summaryActivityItemList.isEmpty()) {
             summaryAdapter.setActivityItemList(summaryActivityItemList);
-
             TextView trajectoryTextView = getBottomSheet().findViewById(R.id.trajectory_info_tv);
             if (trajectoryTextView != null) {
                 trajectoryTextView.setVisibility(View.GONE);
@@ -132,7 +134,6 @@ public class NormalBottomSheet extends BottomSheet {
     private void showEmptyState() {
         sessionsRecyclerView.setVisibility(View.GONE);
         summaryRecyclerView.setVisibility(View.GONE);
-
         TextView trajectoryTextView = getBottomSheet().findViewById(R.id.trajectory_info_tv);
         if (trajectoryTextView != null) {
             trajectoryTextView.setText(uk.ac.cam.cares.jps.utils.R.string.trajectoryagent_no_trajectory_found);
@@ -142,10 +143,8 @@ public class NormalBottomSheet extends BottomSheet {
 
     public void highlightClickedSegment(TrajectorySegment clickedSegment) {
         sessionsAdapter.setClickedSegment(clickedSegment);
-
         if (clickedSegment != null) {
             Log.d("SCROLL_DEBUG", "Scrolling to session: " + clickedSegment.getSessionNumber());
-
             sessionsRecyclerView.post(() -> {
                 LinearLayoutManager layoutManager = (LinearLayoutManager) sessionsRecyclerView.getLayoutManager();
                 if (layoutManager != null) {
@@ -153,7 +152,5 @@ public class NormalBottomSheet extends BottomSheet {
                 }
             });
         }
-
     }
-
 }
