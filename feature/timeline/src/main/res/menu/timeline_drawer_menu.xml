@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/nav_timeline_map"
+            android:icon="@drawable/baseline_directions_walk_24"
+            android:title="Timeline Map" />
+        <item
+            android:id="@+id/nav_calculated_exposures"
+            android:icon="@drawable/baseline_settings_24"
+            android:title="Calculated Exposures" />
+        <item
+            android:id="@+id/nav_compare_trips"
+            android:icon="@drawable/ic_compare_arrows_24"
+            android:title="Compare Trips" />
+    </group>
+</menu>

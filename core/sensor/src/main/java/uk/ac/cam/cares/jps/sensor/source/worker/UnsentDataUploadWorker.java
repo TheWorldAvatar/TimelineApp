@@ -14,105 +14,127 @@ import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import dagger.assisted.Assisted;
 import dagger.assisted.AssistedInject;
+import uk.ac.cam.cares.jps.login.LoginRepository;
+import uk.ac.cam.cares.jps.sensor.data.SensorCollectionStateManagerRepository;
 import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
 import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
 import uk.ac.cam.cares.jps.sensor.source.network.SensorNetworkSource;
-import uk.ac.cam.cares.jps.login.LoginRepository;
+import uk.ac.cam.cares.jps.utils.RepositoryCallback;
 
 @HiltWorker
 public class UnsentDataUploadWorker extends Worker {
     private final SensorLocalSource sensorLocalSource;
     private final SensorNetworkSource sensorNetworkSource;
+    private final SensorCollectionStateManagerRepository stateManagerRepository;
     private final Logger LOGGER = Logger.getLogger(UnsentDataUploadWorker.class);
 
-    private final String taskId;
+    private String fallbackTaskId;
 
     private final LoginRepository loginRepository;
 
     @AssistedInject
     public UnsentDataUploadWorker(@Assisted @NonNull Context context, @Assisted @NonNull WorkerParameters workerParams,
-                                SensorLocalSource sensorLocalSource,
-                                SensorNetworkSource sensorNetworkSource,
-                                LoginRepository loginRepository) {
+                                  SensorLocalSource sensorLocalSource,
+                                  SensorNetworkSource sensorNetworkSource,
+                                  SensorCollectionStateManagerRepository stateManagerRepository,
+                                  LoginRepository loginRepository) {
         super(context, workerParams);
         this.sensorLocalSource = sensorLocalSource;
         this.sensorNetworkSource = sensorNetworkSource;
+        this.stateManagerRepository = stateManagerRepository;
         this.loginRepository = loginRepository;
-        this.taskId = workerParams.getInputData().getString("taskId");
+        this.fallbackTaskId = workerParams.getInputData().getString("taskId");
     }
 
     @NonNull
     @Override
     public Result doWork() {
         try {
-            uploadUnsentData();
-            return Result.success();
+            if (!ensureDatabaseInitialized()) {
+                return Result.success();
+            }
+            if (fallbackTaskId == null || fallbackTaskId.isEmpty()) {
+                fallbackTaskId = fetchStateValueBlocking(stateManagerRepository::getTaskId);
+            }
+
+            boolean allUploaded = uploadUnsentData();
+            return allUploaded ? Result.success() : Result.retry();
+        } catch (IOException e) {
+            LOGGER.warn("Transient error uploading unsent sensor data, scheduling retry", e);
+            return Result.retry();
         } catch (Exception e) {
             Log.e("DataUploadWorker", "Error uploading sensor data", e);
-            return Result.failure();
+            return Result.retry();
         }
     }
 
-    private void uploadUnsentData() throws IOException {
+    private boolean uploadUnsentData() throws IOException {
         int limit = 100;
+        boolean allUploaded = true;
 
         while (true) {
-            // Always read from offset 0: rows we've confirmed sent are deleted
-            // before the next read, so whatever is left has already "slid down".
-            // Advancing the offset here (like the old code did) while also
-            // deleting the same rows caused every other page to be skipped.
             List<UnsentData> unsentDataList = sensorLocalSource.retrieveUnsentData(limit, 0);
             if (unsentDataList.isEmpty()) {
                 break;
             }
 
-            Map<String, List<UnsentData>> byDevice = groupByDevice(unsentDataList);
+            // Never mix unsent batches across devices or recording sessions
+            Map<String, List<UnsentData>> byDeviceAndSession = groupByDeviceAndSession(unsentDataList);
             boolean anySucceeded = false;
 
-            for (Map.Entry<String, List<UnsentData>> entry : byDevice.entrySet()) {
-                String deviceId = entry.getKey();
-                List<UnsentData> deviceRows = entry.getValue();
-                String payload = combinePayload(deviceRows);
+            for (List<UnsentData> batchRows : byDeviceAndSession.values()) {
+                UnsentData first = batchRows.get(0);
+                String deviceId = first.deviceId;
+                String sessionId = (first.sessionId != null && !first.sessionId.isEmpty())
+                        ? first.sessionId
+                        : fallbackTaskId;
+                String payload = combinePayload(batchRows);
 
                 try {
                     byte[] compressedData = compressData(payload);
                     String accessToken = fetchAccessTokenBlocking();
-                    // We now know, on this line, whether the server actually got it.
-                    boolean success = sensorNetworkSource.sendPostRequestSync(deviceId, taskId, compressedData, payload, accessToken);
+                    boolean success = sensorNetworkSource.sendPostRequestSync(
+                            deviceId, sessionId, compressedData, payload, accessToken);
 
                     if (success) {
-                        // Only delete once delivery is confirmed.
-                        sensorLocalSource.deleteUnsentData(deviceRows);
+                        sensorLocalSource.deleteUnsentData(batchRows);
                         anySucceeded = true;
-                        LOGGER.info("Unsent data upload confirmed for device " + deviceId);
+                        LOGGER.info("Unsent data upload confirmed for device " + deviceId + ", session " + sessionId);
                     } else {
-                        LOGGER.warn("Unsent data upload failed for device " + deviceId + ", leaving rows for next retry");
+                        allUploaded = false;
+                        LOGGER.warn("Unsent data upload failed for device " + deviceId + ", session " + sessionId + ", leaving rows for retry");
                     }
                 } catch (Exception e) {
-                    LOGGER.error("Error processing unsent data for device " + deviceId, e);
+                    allUploaded = false;
+                    LOGGER.error("Error processing unsent data for device " + deviceId + ", session " + sessionId, e);
                 }
             }
 
             if (!anySucceeded) {
-                // Still offline / server unreachable - stop instead of spinning
-                // forever on the same rows. Next connectivity change tries again.
+                allUploaded = false;
                 break;
             }
         }
+        return allUploaded;
     }
 
-    private Map<String, List<UnsentData>> groupByDevice(List<UnsentData> unsentDataList) {
-        Map<String, List<UnsentData>> byDevice = new HashMap<>();
+    private Map<String, List<UnsentData>> groupByDeviceAndSession(List<UnsentData> unsentDataList) {
+        Map<String, List<UnsentData>> grouped = new LinkedHashMap<>();
         for (UnsentData data : unsentDataList) {
-            byDevice.computeIfAbsent(data.deviceId, k -> new ArrayList<>()).add(data);
+            String rowSession = data.sessionId != null ? data.sessionId : "";
+            String key = data.deviceId + "|" + rowSession;
+            grouped.computeIfAbsent(key, k -> new ArrayList<>()).add(data);
         }
-        return byDevice;
+        return grouped;
     }
 
     private String combinePayload(List<UnsentData> deviceRows) {
@@ -126,12 +148,50 @@ public class UnsentDataUploadWorker extends Worker {
         return "[" + combined + "]";
     }
 
-    private String fetchAccessTokenBlocking() throws IOException {
-        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicReference<String> tokenRef = new java.util.concurrent.atomic.AtomicReference<>();
-        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+    private boolean ensureDatabaseInitialized() {
+        if (sensorLocalSource.isDatabaseInitialized()) {
+            return true;
+        }
+        String hashedFileName = fetchStateValueBlocking(stateManagerRepository::getHashedFileName);
+        if (hashedFileName == null || hashedFileName.isEmpty()) {
+            LOGGER.info("Skipping UnsentDataUploadWorker: no active user database available.");
+            return false;
+        }
+        sensorLocalSource.initAppDataBase(hashedFileName);
+        return true;
+    }
 
-        loginRepository.getAccessToken(new uk.ac.cam.cares.jps.utils.RepositoryCallback<String>() {
+    private String fetchStateValueBlocking(Consumer<RepositoryCallback<String>> loader) {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<String> valueRef = new AtomicReference<>();
+
+        loader.accept(new RepositoryCallback<>() {
+            @Override
+            public void onSuccess(String result) {
+                valueRef.set(result);
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return valueRef.get();
+    }
+
+    private String fetchAccessTokenBlocking() throws IOException {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<String> tokenRef = new AtomicReference<>();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        loginRepository.getAccessToken(new RepositoryCallback<String>() {
             @Override
             public void onSuccess(String token) {
                 tokenRef.set(token);

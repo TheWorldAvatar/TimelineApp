@@ -1,10 +1,10 @@
 package uk.ac.cam.cares.jps.sensor.source.database.model.entity;
 
+import androidx.room.ColumnInfo;
 import androidx.room.PrimaryKey;
 
-import org.json.JSONObject;
 import org.json.JSONException;
-
+import org.json.JSONObject;
 
 /**
  * An abstract base class representing generic sensor data.
@@ -16,6 +16,8 @@ public abstract class SensorData {
     @PrimaryKey
     public long time;
     public int uploaded;
+    @ColumnInfo(name = "session_id")
+    public String sessionId;
 
     /**
      * Default constructor

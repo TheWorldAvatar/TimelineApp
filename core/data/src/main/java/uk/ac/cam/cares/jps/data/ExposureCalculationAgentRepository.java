@@ -1,5 +1,12 @@
 package uk.ac.cam.cares.jps.data;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+
 import uk.ac.cam.cares.jps.login.LoginRepository;
 import uk.ac.cam.cares.jps.network.ExposureCalculationAgentNetworkSource;
 import uk.ac.cam.cares.jps.utils.RepositoryCallback;
@@ -14,13 +21,16 @@ public class ExposureCalculationAgentRepository {
     private final ExposureCalculationAgentNetworkSource networkSource;
     private final AppPreferenceRepository appPreferenceRepository;
     private final LoginRepository loginRepository;
+    private final Context context;
 
     public ExposureCalculationAgentRepository(ExposureCalculationAgentNetworkSource networkSource,
                                               AppPreferenceRepository appPreferenceRepository,
-                                              LoginRepository loginRepository) {
+                                              LoginRepository loginRepository,
+                                              Context context) {
         this.networkSource = networkSource;
         this.appPreferenceRepository = appPreferenceRepository;
         this.loginRepository = loginRepository;
+        this.context = context.getApplicationContext();
     }
 
     public void triggerCalculation(Long lowerbound, Long upperbound, RepositoryCallback<String> callback) {
@@ -43,14 +53,14 @@ public class ExposureCalculationAgentRepository {
                                         String distance = (distancePref == null || distancePref.isEmpty()) ? DEFAULT_DISTANCE : distancePref;
 
                                         networkSource.triggerCalculation(accessToken, rdfType, distance, datasetIri, lowerbound, upperbound,
-                                                queuedResponse -> awaitJob(accessToken, queuedResponse, callback),
+                                                queuedResponse -> awaitJob(accessToken, queuedResponse, lowerbound, upperbound, callback),
                                                 error -> callback.onFailure(new Exception("Failed to trigger exposure calculation", error)));
                                     }
 
                                     @Override
                                     public void onFailure(Throwable error) {
                                         networkSource.triggerCalculation(accessToken, rdfType, DEFAULT_DISTANCE, datasetIri, lowerbound, upperbound,
-                                                queuedResponse -> awaitJob(accessToken, queuedResponse, callback),
+                                                queuedResponse -> awaitJob(accessToken, queuedResponse, lowerbound, upperbound, callback),
                                                 e -> callback.onFailure(new Exception("Failed to trigger exposure calculation", e)));
                                     }
                                 });
@@ -78,7 +88,9 @@ public class ExposureCalculationAgentRepository {
     }
 
     /** The agent answers 202 once the job is queued; report success only after the job has finished. */
-    private void awaitJob(String accessToken, String queuedResponse, RepositoryCallback<String> callback) {
+    private void awaitJob(String accessToken, String queuedResponse,
+                          Long lowerbound, Long upperbound,
+                          RepositoryCallback<String> callback) {
         JobPoller.awaitCompletion(queuedResponse,
                 fetchCallback -> networkSource.getActiveJobs(accessToken,
                         fetchCallback::onSuccess,
@@ -86,6 +98,7 @@ public class ExposureCalculationAgentRepository {
                 new RepositoryCallback<>() {
                     @Override
                     public void onSuccess(Void unused) {
+                        invalidateCacheForRange(lowerbound, upperbound);
                         callback.onSuccess(queuedResponse);
                     }
 
@@ -94,5 +107,37 @@ public class ExposureCalculationAgentRepository {
                         callback.onFailure(new Exception("Failed while waiting for exposure calculation", error));
                     }
                 });
+    }
+
+    private void invalidateCacheForRange(Long lowerbound, Long upperbound) {
+        ZoneId zone = ZoneId.systemDefault();
+        LocalDate startDate = lowerbound != null
+                ? Instant.ofEpochMilli(lowerbound).atZone(zone).toLocalDate()
+                : LocalDate.now(zone);
+        LocalDate endDate = (upperbound != null && upperbound > 0)
+                ? Instant.ofEpochMilli(Math.max(lowerbound != null ? lowerbound : upperbound, upperbound - 1))
+                        .atZone(zone).toLocalDate()
+                : startDate;
+
+        SharedPreferences overviewPrefs = context.getSharedPreferences("exposure_overview_cache", Context.MODE_PRIVATE);
+        SharedPreferences comparePrefs = context.getSharedPreferences("compare_trips_cache", Context.MODE_PRIVATE);
+        SharedPreferences trajPrefs = context.getSharedPreferences("compare_trips_traj_cache", Context.MODE_PRIVATE);
+
+        SharedPreferences.Editor overviewEd = overviewPrefs.edit();
+        SharedPreferences.Editor compareEd = comparePrefs.edit();
+        SharedPreferences.Editor trajEd = trajPrefs.edit();
+
+        int guard = 0;
+        for (LocalDate d = startDate; !d.isAfter(endDate) && guard < 31; d = d.plusDays(1), guard++) {
+            String key = d.toString();
+            overviewEd.remove(key);
+            compareEd.remove(key);
+            trajEd.remove("day|" + key);
+        }
+
+        long now = System.currentTimeMillis();
+        overviewEd.putLong("__last_calc_ms", now).apply();
+        compareEd.putLong("__last_calc_ms", now).apply();
+        trajEd.apply();
     }
 }

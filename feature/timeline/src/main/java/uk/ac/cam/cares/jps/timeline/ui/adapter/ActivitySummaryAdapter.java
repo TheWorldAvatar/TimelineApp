@@ -1,25 +1,24 @@
 package uk.ac.cam.cares.jps.timeline.ui.adapter;
 
-import android.graphics.Color;
-import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
+import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import uk.ac.cam.cares.jps.timeline.model.bottomsheet.ActivitySummary;
-import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
-import android.widget.ImageView;
-import android.widget.TextView;
-
 public class ActivitySummaryAdapter extends RecyclerView.Adapter<ActivitySummaryAdapter.ActivitySummaryViewHolder> {
+    private static final List<String> VALID_ACTIVITIES = Arrays.asList("walking", "vehicle", "bike", "still");
     private List<ActivitySummary> summaryList;
 
     public ActivitySummaryAdapter() {
@@ -27,8 +26,16 @@ public class ActivitySummaryAdapter extends RecyclerView.Adapter<ActivitySummary
     }
 
     public void setActivityItemList(List<ActivitySummary> summaryList) {
-        this.summaryList = new ArrayList<>(summaryList);
-
+        List<ActivitySummary> filtered = new ArrayList<>();
+        if (summaryList != null) {
+            for (ActivitySummary item : summaryList) {
+                if (item != null && VALID_ACTIVITIES.contains(item.getActivityType())) {
+                    filtered.add(item);
+                }
+            }
+        }
+        this.summaryList = filtered;
+        notifyDataSetChanged();
     }
 
     @NonNull
@@ -41,31 +48,10 @@ public class ActivitySummaryAdapter extends RecyclerView.Adapter<ActivitySummary
     @Override
     public void onBindViewHolder(@NonNull ActivitySummaryViewHolder holder, int position) {
         ActivitySummary summaryItem = summaryList.get(position);
-
         holder.activityType.setImageResource(summaryItem.getActivityImage());
-
-        List<String> validActivities = new ArrayList<>();
-        validActivities.add("still");
-        validActivities.add("walking");
-        validActivities.add("bike");
-        validActivities.add("vehicle");
-
-
-        holder.totalDistance.setText(summaryItem.getTotalDistance());
+        holder.activityLabel.setText(formatLabel(summaryItem.getActivityType()));
+        holder.totalDistance.setText(formatDistance(summaryItem.getTotalDistance()));
         holder.timeSummary.setText(summaryItem.getTimeSummary());
-
-        if (validActivities.contains(summaryItem.getActivityType())) {
-            holder.itemView.setVisibility(View.VISIBLE);
-            holder.itemView.setLayoutParams(new RecyclerView.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            holder.activityType.setVisibility(View.VISIBLE);
-            holder.totalDistance.setVisibility(View.VISIBLE);
-            holder.timeSummary.setVisibility(View.VISIBLE);
-        } else {
-            holder.itemView.setVisibility(View.GONE);
-            holder.itemView.setLayoutParams(new RecyclerView.LayoutParams(0, 0));
-        }
-
     }
 
     @Override
@@ -73,15 +59,47 @@ public class ActivitySummaryAdapter extends RecyclerView.Adapter<ActivitySummary
         return summaryList.size();
     }
 
+    private String formatLabel(String type) {
+        if (type == null) return "";
+        switch (type) {
+            case "walking":
+                return "Walk";
+            case "vehicle":
+                return "Vehicle";
+            case "bike":
+                return "Cycle";
+            case "still":
+                return "Stay";
+            default:
+                return type;
+        }
+    }
+
+    private String formatDistance(String rawDistance) {
+        if (rawDistance == null) return "0 m";
+        String trimmed = rawDistance.trim();
+        if (trimmed.endsWith(" m")) {
+            try {
+                int meters = Integer.parseInt(trimmed.substring(0, trimmed.length() - 2).trim());
+                if (meters >= 1000) {
+                    return String.format(Locale.getDefault(), "%.1f km", meters / 1000.0);
+                }
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return trimmed;
+    }
+
     static class ActivitySummaryViewHolder extends RecyclerView.ViewHolder {
         ImageView activityType;
+        TextView activityLabel;
         TextView totalDistance;
         TextView timeSummary;
 
         public ActivitySummaryViewHolder(@NonNull View summaryView) {
             super(summaryView);
-
             activityType = summaryView.findViewById(R.id.activity_type);
+            activityLabel = summaryView.findViewById(R.id.activity_label);
             totalDistance = summaryView.findViewById(R.id.total_distance);
             timeSummary = summaryView.findViewById(R.id.total_time);
         }

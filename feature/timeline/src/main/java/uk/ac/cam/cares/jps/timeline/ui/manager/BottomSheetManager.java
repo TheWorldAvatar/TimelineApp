@@ -61,8 +61,7 @@ import uk.ac.cam.cares.jps.timeline.viewmodel.UserPhoneViewModel;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
 /**
- * A UI manager that manages bottom sheets on screen and switches between different bottom sheets
- * based on the state.
+ * A UI manager that manages bottom sheets on screen and switches between them based on state.
  */
 public class BottomSheetManager {
     private final TrajectoryViewModel trajectoryViewModel;
@@ -70,6 +69,7 @@ public class BottomSheetManager {
     private final UserPhoneViewModel userPhoneViewModel;
     private final NormalBottomSheetViewModel normalBottomSheetViewModel;
     private final ExposureFeatureInfoViewModel exposureFeatureInfoViewModel;
+
     private final Logger LOGGER = Logger.getLogger(BottomSheetManager.class);
     private final FragmentManager fragmentManager;
     private final BottomSheetBehavior<LinearLayoutCompat> bottomSheetBehavior;
@@ -82,12 +82,13 @@ public class BottomSheetManager {
     private final MaterialAlertDialogBuilder sessionExpiredDialog;
     private final GreyOutDecorator greyOutDecorator;
 
-    // Floating map controls anchored to the bottom sheet
+    // Floating map controls that fade as the sheet expands
     private final View legendCard;
     private final View recordingFab;
 
-    // trip detail bubble
+    // Trip detail bubble
     private final View tripDetailBubble;
+    private final TextView tripDetailEyebrowTv;
     private final TextView tripDetailIdTv;
     private final TextView tripDetailDistanceTv;
     private final View tripDetailTableHeaderGroup;
@@ -100,11 +101,9 @@ public class BottomSheetManager {
 
     private final List<ResultPage> resultPages = new ArrayList<>();
     private int currentPageIndex = 0;
-
-    // track which trip is currently displayed, so a stale response can't overwrite a newer click
     private TrajectorySegment pendingSegment;
 
-    // swipe / scroll handling
+    // Swipe / scroll handling
     private static final int AXIS_NONE = 0, AXIS_HORIZONTAL = 1, AXIS_VERTICAL = 2;
     private static final float VERTICAL_BIAS = 1.5f;
     private int axisLock = AXIS_NONE;
@@ -114,12 +113,14 @@ public class BottomSheetManager {
     private boolean scrolledVertically = false;
     private final int touchSlop;
     private final int swipeThresholdPx;
-
     private final View.OnTouchListener swipeListener;
 
     private static final Pattern DISTANCE_KEY_PATTERN =
             Pattern.compile("^\\s*(\\d+(?:\\.\\d+)?)\\s*(km|m)?", Pattern.CASE_INSENSITIVE);
+    private static final Pattern STRICT_DISTANCE_KEY =
+            Pattern.compile("^\\s*\\d+(?:\\.\\d+)?\\s*(?:km|m)\\s*$", Pattern.CASE_INSENSITIVE);
     private static final String EMPTY_CELL = "–";
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm");
 
     private static final class ResultPage {
         final String dataset;
@@ -141,6 +142,7 @@ public class BottomSheetManager {
         userPhoneViewModel = new ViewModelProvider(fragment).get(UserPhoneViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
         exposureFeatureInfoViewModel = new ViewModelProvider(fragment).get(ExposureFeatureInfoViewModel.class);
+
         lifecycleOwner = fragment.getViewLifecycleOwner();
         context = fragment.requireContext();
         touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
@@ -157,11 +159,13 @@ public class BottomSheetManager {
         recordingFab = rootView.findViewById(R.id.recording_fab);
 
         tripDetailBubble = rootView.findViewById(R.id.trip_detail_bubble);
+        tripDetailEyebrowTv = rootView.findViewById(R.id.trip_detail_eyebrow_tv);
         tripDetailIdTv = rootView.findViewById(R.id.trip_detail_id_tv);
         tripDetailDistanceTv = rootView.findViewById(R.id.trip_detail_distance_tv);
         tripDetailBubble.findViewById(R.id.trip_detail_close_bt)
                 .setOnClickListener(v -> trajectoryViewModel.removeAllClicked());
         tripDetailScroll = tripDetailBubble.findViewById(R.id.trip_detail_scroll);
+
         tripDetailTableHeaderGroup = tripDetailBubble.findViewById(R.id.trip_detail_table_header_group);
         tripDetailTableHeader = tripDetailBubble.findViewById(R.id.trip_detail_table_header);
         tripDetailTableRows = tripDetailBubble.findViewById(R.id.trip_detail_table_rows);
@@ -178,61 +182,82 @@ public class BottomSheetManager {
         tripDetailDistanceTv.setOnTouchListener(swipeListener);
         tripDetailTableRows.setOnTouchListener(swipeListener);
 
-        setupBottomSheetBehaviorCallbacks();
+        setupBottomSheetBehavior();
         initBottomSheet();
     }
 
-    private void setupBottomSheetBehaviorCallbacks() {
+    private void setupBottomSheetBehavior() {
         bottomSheetBehavior.addBottomSheetCallback(new BottomSheetBehavior.BottomSheetCallback() {
             @Override
             public void onStateChanged(@NonNull View bottomSheet, int newState) {
+                if (newState == BottomSheetBehavior.STATE_EXPANDED) {
+                    setFloatingControlsAlpha(0f);
+                } else if (newState == BottomSheetBehavior.STATE_COLLAPSED
+                        || newState == BottomSheetBehavior.STATE_HALF_EXPANDED) {
+                    setFloatingControlsAlpha(1f);
+                }
                 updateSessionsBottomPadding();
             }
 
             @Override
             public void onSlide(@NonNull View bottomSheet, float slideOffset) {
-                float alpha = slideOffset > 0.5f
-                        ? Math.max(0f, 1f - (slideOffset - 0.5f) * 4f)
-                        : 1f;
-                int visibility = alpha <= 0.02f ? View.INVISIBLE : View.VISIBLE;
-                if (legendCard != null) {
-                    legendCard.setAlpha(alpha);
-                    legendCard.setVisibility(visibility);
-                }
-                if (recordingFab != null) {
-                    recordingFab.setAlpha(alpha);
-                    recordingFab.setVisibility(visibility);
-                }
+                float halfRatio = bottomSheetBehavior.getHalfExpandedRatio();
+                float fade = 1f - Math.max(0f, Math.min(1f, (slideOffset - halfRatio) / 0.25f));
+                setFloatingControlsAlpha(fade);
                 updateSessionsBottomPadding();
             }
         });
     }
 
-    private void updateSessionsBottomPadding() {
-        if (normalBottomSheet == null) return;
-        View sheetRoot = normalBottomSheet.getBottomSheet();
-        RecyclerView sessionsRv = sheetRoot.findViewById(R.id.sessions_recycler_view);
-        if (sessionsRv == null) return;
+    private void setFloatingControlsAlpha(float alpha) {
+        int visibility = alpha <= 0.02f ? View.INVISIBLE : View.VISIBLE;
+        if (legendCard != null) {
+            legendCard.setAlpha(alpha);
+            legendCard.setVisibility(visibility);
+        }
+        if (recordingFab != null) {
+            recordingFab.setAlpha(alpha);
+            recordingFab.setVisibility(visibility);
+        }
+    }
 
-        int sheetTop = bottomSheetContainer.getTop();
-        int parentHeight = ((View) bottomSheetContainer.getParent()).getHeight();
-        int extraBottom = (sheetTop > 0 && parentHeight > sheetTop)
-                ? Math.max(dp(24), bottomSheetContainer.getHeight() - (parentHeight - sheetTop) + dp(24))
-                : dp(24);
-        sessionsRv.setClipToPadding(false);
-        sessionsRv.setPadding(sessionsRv.getPaddingLeft(), sessionsRv.getPaddingTop(),
-                sessionsRv.getPaddingRight(), extraBottom);
+    private void updateSessionsBottomPadding() {
+        if (normalBottomSheet == null || normalBottomSheet.getBottomSheet() == null) return;
+        RecyclerView sessionsRv = normalBottomSheet.getBottomSheet().findViewById(R.id.sessions_recycler_view);
+        if (sessionsRv == null) return;
+        int desiredBottom = Math.max(0, bottomSheetContainer.getTop()) + dp(24);
+        if (sessionsRv.getPaddingBottom() != desiredBottom) {
+            sessionsRv.setPadding(
+                    sessionsRv.getPaddingLeft(),
+                    sessionsRv.getPaddingTop(),
+                    sessionsRv.getPaddingRight(),
+                    desiredBottom
+            );
+        }
+    }
+
+    private void configureDragHandle(BottomSheet sheet) {
+        View handle = sheet.getBottomSheet().findViewById(R.id.drag_handle);
+        if (handle == null) return;
+        handle.setOnClickListener(v -> {
+            int state = bottomSheetBehavior.getState();
+            if (state == BottomSheetBehavior.STATE_COLLAPSED) {
+                bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
+            } else if (state == BottomSheetBehavior.STATE_HALF_EXPANDED) {
+                bottomSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+            } else {
+                bottomSheetBehavior.setState(BottomSheetBehavior.STATE_COLLAPSED);
+            }
+        });
     }
 
     private void initBottomSheet() {
         initNormalBottomSheet();
         initErrorBottomSheet();
-
         connectionViewModel.getHasConnection().observe(lifecycleOwner, hasConnection -> {
             if (hasConnection) {
                 setBottomSheet(normalBottomSheet);
                 trajectoryViewModel.getTrajectory(normalBottomSheetViewModel.selectedDate.getValue());
-                bottomSheetContainer.post(this::updateSessionsBottomPadding);
             } else {
                 errorBottomSheet.setErrorType(ErrorBottomSheet.ErrorType.CONNECTION_ERROR);
                 setAndExtendBottomSheet(errorBottomSheet);
@@ -243,62 +268,18 @@ public class BottomSheetManager {
 
     private void initNormalBottomSheet() {
         normalBottomSheet = new NormalBottomSheet(context, trajectoryViewModel);
-        configureDragHandleAndScrolling();
+        configureDragHandle(normalBottomSheet);
         configureDateSelection();
         configureTrajectoryRetrieval();
         configureSummary();
         configureExposureFeatureInfo();
     }
 
-    private void configureDragHandleAndScrolling() {
-        View sheetRoot = normalBottomSheet.getBottomSheet();
-        View dragHandle = sheetRoot.findViewById(R.id.drag_handle);
-        if (dragHandle != null) {
-            dragHandle.setOnClickListener(v -> {
-                int state = bottomSheetBehavior.getState();
-                if (state == BottomSheetBehavior.STATE_COLLAPSED) {
-                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
-                } else if (state == BottomSheetBehavior.STATE_HALF_EXPANDED) {
-                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_EXPANDED);
-                } else {
-                    bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
-                }
-            });
-        }
-
-        RecyclerView sessionsRv = sheetRoot.findViewById(R.id.sessions_recycler_view);
-        if (sessionsRv != null) {
-            sessionsRv.addOnItemTouchListener(new RecyclerView.OnItemTouchListener() {
-                private float startY;
-
-                @Override
-                public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                    if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                        startY = e.getY();
-                        if (rv.canScrollVertically(-1) || rv.canScrollVertically(1)) {
-                            rv.getParent().requestDisallowInterceptTouchEvent(true);
-                        }
-                    } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE) {
-                        float dy = e.getY() - startY;
-                        boolean pullingDownAtTop = dy > 0 && !rv.canScrollVertically(-1);
-                        rv.getParent().requestDisallowInterceptTouchEvent(!pullingDownAtTop);
-                    }
-                    return false;
-                }
-
-                @Override
-                public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
-                }
-
-                @Override
-                public void onRequestDisallowInterceptTouchEvent(boolean disallowIntercept) {
-                }
-            });
-        }
-    }
-
     private void configureTrajectoryRetrieval() {
-        trajectoryViewModel.isFetchingTrajectory.observe(lifecycleOwner, normalBottomSheet::showFetchingAnimation);
+        trajectoryViewModel.isFetchingTrajectory.observe(lifecycleOwner, isFetching -> {
+            normalBottomSheet.showFetchingAnimation(isFetching);
+            bottomSheetContainer.post(this::updateSessionsBottomPadding);
+        });
     }
 
     private void configureSummary() {
@@ -312,12 +293,12 @@ public class BottomSheetManager {
             }
         });
 
-        trajectoryViewModel.clickedSegment.observe(lifecycleOwner, clickedId -> {
-            normalBottomSheet.highlightClickedSegment(clickedId);
-            updateTripDetailBubble(clickedId);
-            if (clickedId != null && bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
+        trajectoryViewModel.clickedSegment.observe(lifecycleOwner, clickedSegment -> {
+            normalBottomSheet.highlightClickedSegment(clickedSegment);
+            if (clickedSegment != null && bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_EXPANDED) {
                 bottomSheetBehavior.setState(BottomSheetBehavior.STATE_HALF_EXPANDED);
             }
+            updateTripDetailBubble(clickedSegment);
         });
     }
 
@@ -331,7 +312,7 @@ public class BottomSheetManager {
                     tripDetailIdTv.setText(formatTripKey(group.getString("key")));
                     buildResultPages(group.getJSONObject("results"));
                 } else {
-                    tripDetailIdTv.setText("");
+                    tripDetailIdTv.setText(fallbackSegmentTitle(pendingSegment));
                 }
             } catch (JSONException e) {
                 LOGGER.error("Failed to parse exposure timeline results: " + e.getMessage(), e);
@@ -362,9 +343,6 @@ public class BottomSheetManager {
         return key.equals("collapse") || key.equals("display_order");
     }
 
-    private static final Pattern STRICT_DISTANCE_KEY =
-            Pattern.compile("^\\s*\\d+(?:\\.\\d+)?\\s*(?:km|m)\\s*$", Pattern.CASE_INSENSITIVE);
-
     private static final class Leaf {
         final List<String> path;
         final String value;
@@ -375,18 +353,20 @@ public class BottomSheetManager {
         }
     }
 
-    private void collectLeaves(JSONObject node, List<String> path, List<Leaf> out) throws JSONException {
+    private void collectLeaves(JSONObject node, List<String> path, List<Leaf> out) {
         Iterator<String> keys = node.keys();
         while (keys.hasNext()) {
             String key = keys.next();
             if (isControlKey(key)) continue;
-            Object val = node.get(key);
+            Object child = node.opt(key);
+            if (child == null || child == JSONObject.NULL || child instanceof JSONArray) continue;
+
             List<String> next = new ArrayList<>(path);
             next.add(key);
-            if (val instanceof JSONObject) {
-                collectLeaves((JSONObject) val, next, out);
+            if (child instanceof JSONObject) {
+                collectLeaves((JSONObject) child, next, out);
             } else {
-                out.add(new Leaf(next, String.valueOf(val)));
+                out.add(new Leaf(next, String.valueOf(child)));
             }
         }
     }
@@ -438,14 +418,17 @@ public class BottomSheetManager {
         distances.sort(BottomSheetManager::compareDistanceKeys);
         List<String[]> rows = new ArrayList<>();
         for (String distance : distances) rows.add(valuesByDistance.get(distance));
-
         return new ResultPage(dataset, calcNames, distances, rows);
     }
 
     private void showCurrentPage() {
         boolean hasPages = !resultPages.isEmpty();
-        tripDetailPrevBt.setEnabled(hasPages);
-        tripDetailNextBt.setEnabled(hasPages);
+        boolean canSwitch = resultPages.size() > 1;
+        tripDetailPrevBt.setEnabled(canSwitch);
+        tripDetailNextBt.setEnabled(canSwitch);
+        tripDetailPrevBt.setAlpha(canSwitch ? 1.0f : 0.35f);
+        tripDetailNextBt.setAlpha(canSwitch ? 1.0f : 0.35f);
+
         tripDetailTableHeader.removeAllViews();
         tripDetailTableRows.removeAllViews();
         tripDetailScroll.scrollTo(0, 0);
@@ -462,7 +445,7 @@ public class BottomSheetManager {
         tripDetailDistanceTv.setVisibility(View.GONE);
         tripDetailTableHeaderGroup.setVisibility(View.VISIBLE);
 
-        tripDetailTableHeader.addView(makeCell("Distance", true, false));
+        tripDetailTableHeader.addView(makeCell("Buffer", true, false));
         for (String calc : page.calcNames) {
             tripDetailTableHeader.addView(makeCell(calc, true, true));
         }
@@ -470,15 +453,17 @@ public class BottomSheetManager {
         for (int r = 0; r < page.distances.size(); r++) {
             LinearLayout row = new LinearLayout(context);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setPadding(0, dp(6), 0, dp(6));
+            row.setPadding(0, dp(7), 0, dp(7));
             row.setOnTouchListener(swipeListener);
+
             row.addView(makeCell(page.distances.get(r), false, false));
             for (String value : page.rows.get(r)) {
                 row.addView(makeCell(value, false, true));
             }
             tripDetailTableRows.addView(row);
         }
-        tripDetailPageIndicatorTv.setText(page.dataset);
+
+        tripDetailPageIndicatorTv.setText(page.dataset + " · " + (currentPageIndex + 1) + " / " + resultPages.size());
     }
 
     private TextView makeCell(String text, boolean header, boolean valueColumn) {
@@ -486,11 +471,14 @@ public class BottomSheetManager {
         tv.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, valueColumn ? 1.1f : 0.9f));
         tv.setText(text);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, header ? 13 : 14);
+        tv.setFontFeatureSettings("tnum");
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, header ? 11 : 13);
         tv.setGravity(valueColumn ? Gravity.END : Gravity.START);
         if (header) {
             tv.setTypeface(null, Typeface.BOLD);
-            tv.setAlpha(0.7f);
+            tv.setAlpha(0.75f);
+        } else if (!valueColumn) {
+            tv.setTypeface(null, Typeface.BOLD);
         }
         tv.setOnTouchListener(swipeListener);
         return tv;
@@ -502,13 +490,24 @@ public class BottomSheetManager {
 
     private void updateTripDetailBubble(TrajectorySegment clickedSegment) {
         if (clickedSegment != null) {
-            tripDetailIdTv.setText("Loading…");
+            if (tripDetailEyebrowTv != null) {
+                String range = formatTimeRange(clickedSegment.getStartTime(), clickedSegment.getEndTime());
+                String base = context.getString(R.string.exposure_summary_eyebrow);
+                tripDetailEyebrowTv.setText(range.isEmpty() ? base : base + " · " + range);
+            }
+            tripDetailIdTv.setText(fallbackSegmentTitle(clickedSegment));
             tripDetailTableHeaderGroup.setVisibility(View.GONE);
             tripDetailTableHeader.removeAllViews();
             tripDetailTableRows.removeAllViews();
             tripDetailDistanceTv.setVisibility(View.VISIBLE);
-            tripDetailDistanceTv.setText("");
+            tripDetailDistanceTv.setText("Loading exposure summary…");
+            tripDetailPageIndicatorTv.setText("");
+            tripDetailPrevBt.setEnabled(false);
+            tripDetailNextBt.setEnabled(false);
+            tripDetailPrevBt.setAlpha(0.35f);
+            tripDetailNextBt.setAlpha(0.35f);
             tripDetailBubble.setVisibility(View.VISIBLE);
+
             pendingSegment = clickedSegment;
             exposureFeatureInfoViewModel.getTimelineResults(clickedSegment.getStartTime(), clickedSegment.getEndTime());
         } else {
@@ -516,11 +515,25 @@ public class BottomSheetManager {
         }
     }
 
+    private String fallbackSegmentTitle(TrajectorySegment segment) {
+        if (segment == null) return "";
+        return segment.getTrip() == 0 ? "Stay" : "Trip " + segment.getTrip();
+    }
+
+    private String formatTimeRange(long startMs, long endMs) {
+        if (startMs <= 0 || endMs <= 0) return "";
+        ZoneId zone = ZoneId.systemDefault();
+        String start = Instant.ofEpochMilli(startMs).atZone(zone).format(TIME_FMT);
+        String end = Instant.ofEpochMilli(endMs).atZone(zone).format(TIME_FMT);
+        return start + " – " + end;
+    }
+
     private JSONObject findMatchingGroup(JSONArray groups, TrajectorySegment segment) throws JSONException {
         int tripIndex = segment.getTrip();
         for (int i = 0; i < groups.length(); i++) {
             JSONObject group = groups.getJSONObject(i);
             if (group.getInt("trip") != tripIndex) continue;
+
             if (tripIndex == 0) {
                 Instant groupStart = Instant.parse(group.getString("lowerbound"));
                 Instant groupEnd = Instant.parse(group.getString("upperbound"));
@@ -537,6 +550,7 @@ public class BottomSheetManager {
     private void configureDateSelection() {
         normalBottomSheet.getBottomSheet().findViewById(R.id.date_left_bt).setOnClickListener(view ->
                 normalBottomSheetViewModel.setToLastDate());
+
         normalBottomSheet.getBottomSheet().findViewById(R.id.date_right_bt).setOnClickListener(view ->
                 normalBottomSheetViewModel.setToNextDate());
 
@@ -561,6 +575,7 @@ public class BottomSheetManager {
             Toast.makeText(context, "Couldn't load dates with data. Will retry next time.", Toast.LENGTH_LONG).show();
             normalBottomSheetViewModel.clearDatesError();
         });
+
         normalBottomSheetViewModel.getDatesWithTrajectory(currentUtcOffsetId());
     }
 
@@ -580,6 +595,7 @@ public class BottomSheetManager {
 
     private void initErrorBottomSheet() {
         errorBottomSheet = new ErrorBottomSheet(context, connectionViewModel, userPhoneViewModel);
+        configureDragHandle(errorBottomSheet);
         userPhoneViewModel.getError().observe(lifecycleOwner, error -> {
             if (error == null) {
                 return;
@@ -608,6 +624,7 @@ public class BottomSheetManager {
     private void setBottomSheet(BottomSheet bottomSheet) {
         bottomSheetContainer.removeAllViews();
         bottomSheetContainer.addView(bottomSheet.getBottomSheet(), MATCH_PARENT, MATCH_PARENT);
+        bottomSheetContainer.post(this::updateSessionsBottomPadding);
     }
 
     private void setAndExtendBottomSheet(BottomSheet bottomSheet) {
@@ -665,6 +682,7 @@ public class BottomSheetManager {
                 scrolledVertically = false;
                 tripDetailScroll.requestDisallowInterceptTouchEvent(true);
                 return true;
+
             case MotionEvent.ACTION_MOVE:
                 float dx = event.getRawX() - swipeStartX;
                 float dy = event.getRawY() - swipeStartY;
@@ -680,6 +698,7 @@ public class BottomSheetManager {
                 }
                 lastTouchY = event.getRawY();
                 return true;
+
             case MotionEvent.ACTION_UP:
                 float diffX = event.getRawX() - swipeStartX;
                 float diffY = event.getRawY() - swipeStartY;
@@ -692,6 +711,7 @@ public class BottomSheetManager {
                 axisLock = AXIS_NONE;
                 tripDetailScroll.requestDisallowInterceptTouchEvent(false);
                 return true;
+
             case MotionEvent.ACTION_CANCEL:
                 axisLock = AXIS_NONE;
                 tripDetailScroll.requestDisallowInterceptTouchEvent(false);

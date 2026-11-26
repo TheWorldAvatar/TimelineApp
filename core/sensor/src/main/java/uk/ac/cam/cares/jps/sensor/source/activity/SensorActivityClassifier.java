@@ -26,31 +26,10 @@ import uk.ac.cam.cares.jps.sensor.source.handler.LocationHandler;
 
 /**
  * Classifies the user's activity from the phone's own sensors, with NO Google Play services.
- *
- * Labels are the same ones the rest of the app already uses: "still", "walking", "bike",
- * "vehicle" and "lost_signal" (moving, but no GPS speed and no steps to say how). Every result is stored with a rough confidence (0-100).
- *
- * Every WINDOW_MS the classifier looks at three features:
- *   - motion intensity: standard deviation of the accelerometer magnitude (gravity cancels out)
- *   - step cadence: steps per second, from TYPE_STEP_DETECTOR when available and permitted,
- *     otherwise from counting peaks in the accelerometer signal
- *   - speed: from the location handler's latest fix (only when it is recent)
- *
- * Rules turn those into a label and a confidence. Agreement between independent signals
- * (e.g. steps AND walking speed) gives high confidence; a guess from one signal gives low.
- * The last SMOOTHING_WINDOWS results are then combined, so a single odd window can neither
- * flip the label nor keep full confidence.
- *
- * NOTE: the thresholds are starting values, not tuned on real data. They are all constants at
- * the top of this class; adjust them using the logged features ("ACTIVITY window: ...").
  */
 public class SensorActivityClassifier implements SensorEventListener {
 
     // ---- timing -----------------------------------------------------------------------------
-    /**
-     * TEMPORARY TESTING SWITCH. true = classify purely from GPS/mock speed (ignores accelerometer and
-     * step data), for emulator testing. Set to false for real-device use to restore the normal classifier.
-     */
     public static final boolean SPEED_ONLY_MODE = true;
     private static final double SPEED_ONLY_STILL_MAX = 0.3;   // m/s (~1 km/h), below = still
     private static final double SPEED_ONLY_WALK_MAX = 2.8;    // m/s (~10 km/h), below = walking
@@ -85,6 +64,7 @@ public class SensorActivityClassifier implements SensorEventListener {
     private final SensorManager sensorManager;
     private final SensorLocalSource sensorLocalSource;
     private final LocationHandler locationHandler; // may be null when location is not recorded
+    private final String sessionId;
     private final ExecutorService dbExecutor = Executors.newSingleThreadExecutor();
 
     private HandlerThread handlerThread;
@@ -118,10 +98,19 @@ public class SensorActivityClassifier implements SensorEventListener {
                                     SensorManager sensorManager,
                                     SensorLocalSource sensorLocalSource,
                                     LocationHandler locationHandler) {
+        this(context, sensorManager, sensorLocalSource, locationHandler, null);
+    }
+
+    public SensorActivityClassifier(Context context,
+                                    SensorManager sensorManager,
+                                    SensorLocalSource sensorLocalSource,
+                                    LocationHandler locationHandler,
+                                    String sessionId) {
         this.context = context;
         this.sensorManager = sensorManager;
         this.sensorLocalSource = sensorLocalSource;
         this.locationHandler = locationHandler;
+        this.sessionId = sessionId;
     }
 
     public synchronized void start() {
@@ -148,9 +137,10 @@ public class SensorActivityClassifier implements SensorEventListener {
                 == PackageManager.PERMISSION_GRANTED;
         useStepDetector = stepDetector != null && permitted
                 && sensorManager.registerListener(this, stepDetector, SensorManager.SENSOR_DELAY_NORMAL, handler);
-        LOGGER.info("ACTIVITY classifier started. step detector: " + useStepDetector
-                + (useStepDetector ? "" : " (using accelerometer peaks instead)")
-                + ", speed source: " + (locationHandler != null ? "location" : "none"));
+
+        LOGGER.info("ACTIVITY classifier started (session=" + sessionId
+                + ", stepDetector=" + useStepDetector
+                + ", speedSource=" + (locationHandler != null ? "location" : "none") + ")");
         running = true;
     }
 
@@ -166,10 +156,6 @@ public class SensorActivityClassifier implements SensorEventListener {
         running = false;
         LOGGER.info("ACTIVITY classifier stopped");
     }
-
-    // ------------------------------------------------------------------------------------------
-    // SENSOR EVENTS (handler thread)
-    // ------------------------------------------------------------------------------------------
 
     @Override
     public void onSensorChanged(SensorEvent event) {
@@ -227,10 +213,6 @@ public class SensorActivityClassifier implements SensorEventListener {
         peakSteps = 0;
     }
 
-    // ------------------------------------------------------------------------------------------
-    // CLASSIFICATION
-    // ------------------------------------------------------------------------------------------
-
     private void finishWindow(long now) {
         if (SPEED_ONLY_MODE) {
             finishWindowSpeedOnly(now);
@@ -248,7 +230,6 @@ public class SensorActivityClassifier implements SensorEventListener {
         double coverage = Math.min(1.0, sampleCount / (double) EXPECTED_SAMPLES_PER_WINDOW);
 
         Result result = classify(sigma, cadence, speed);
-        // fewer samples than expected means the window is less trustworthy
         int adjusted = (int) Math.round(result.confidence * (0.8 + 0.2 * coverage));
         result = new Result(result.label, adjusted);
 
@@ -263,8 +244,6 @@ public class SensorActivityClassifier implements SensorEventListener {
         publish(smooth(), now);
     }
 
-    /** Rule based classification of a single window. */
-    /** TEMPORARY: classify from speed alone; no sample-count check, smoothing or confidence scaling. */
     private void finishWindowSpeedOnly(long now) {
         Float speed = locationHandler != null ? locationHandler.getRecentSpeedMps(MAX_SPEED_AGE_MS) : null;
         String label;
@@ -290,16 +269,16 @@ public class SensorActivityClassifier implements SensorEventListener {
             double v = speed;
             if (v < SPEED_STILL) {
                 if (sigma < STILL_SIGMA && !stepping) return new Result("still", 90);
-                if (stepping) return new Result("walking", 60);   // stepping on the spot / indoors
-                return new Result("still", 70);                    // phone being handled
+                if (stepping) return new Result("walking", 60);
+                return new Result("still", 70);
             }
             if (v < SPEED_WALK_MAX) {
-                if (stepping) return new Result("walking", 90);    // steps AND walking speed
+                if (stepping) return new Result("walking", 90);
                 if (sigma >= BUMPY_SIGMA) return new Result("bike", 50);
-                return new Result("walking", 60);                  // slow but above the still threshold, no steps detected
+                return new Result("walking", 60);
             }
             if (v < SPEED_RUN_MAX && stepping && running) {
-                return new Result("walking", 65);                  // running; the app has no separate label
+                return new Result("walking", 65);
             }
             if (v >= SPEED_VEHICLE) {
                 return new Result("vehicle", 90);
@@ -310,16 +289,11 @@ public class SensorActivityClassifier implements SensorEventListener {
             return new Result("vehicle", v >= 5.0 ? 75 : 60);
         }
 
-        // no recent speed: accelerometer / steps only, so confidence is capped lower
         if (stepping) return new Result("walking", 70);
         if (sigma < STILL_SIGMA) return new Result("still", 65);
-        return new Result("lost_signal", 65);   // moving, but no GPS speed and no steps: cannot tell how
+        return new Result("lost_signal", 65);
     }
 
-    /**
-     * Combines the last few windows. The label with the largest total confidence wins and its
-     * confidence is averaged over all windows considered, so disagreement lowers it.
-     */
     private Result smooth() {
         Map<String, Integer> totals = new HashMap<>();
         for (Result r : recent) {
@@ -343,6 +317,6 @@ public class SensorActivityClassifier implements SensorEventListener {
             return;
         }
         LOGGER.info("ACTIVITY recorded: " + result.label + " confidence " + result.confidence);
-        dbExecutor.execute(() -> sensorLocalSource.saveActivityData(result.label, result.confidence, timestampMs));
+        dbExecutor.execute(() -> sensorLocalSource.saveActivityData(result.label, result.confidence, timestampMs, sessionId));
     }
 }

@@ -4,14 +4,14 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.location.LocationListener;
-import android.location.LocationManager;
-import android.os.Build;
-import android.os.CancellationSignal;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
@@ -30,7 +30,7 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.navigation.fragment.NavHostFragment;
 
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.mapbox.geojson.Point;
 import com.mapbox.maps.CameraOptions;
 import com.mapbox.maps.MapView;
@@ -57,6 +57,18 @@ import uk.ac.cam.cares.jps.ui.impl.tooltip.TooltipSequence;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.AppPreferenceViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.TooltipTriggerViewModel;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.UserAccountViewModel;
+
+import android.net.Uri;
+import androidx.core.view.GravityCompat;
+import androidx.navigation.NavDeepLinkRequest;
+import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
+import uk.ac.cam.cares.jps.ui.impl.viewmodel.TimelineDateNavigationViewModel;
+
+import android.util.TypedValue;
+
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 @AndroidEntryPoint
 public class TimelineFragment extends Fragment {
@@ -87,8 +99,8 @@ public class TimelineFragment extends Fragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-
         mapView = binding.mapView;
+
         recordingStateViewModel = new ViewModelProvider(this).get(RecordingViewModel.class);
         tooltipTriggerViewModel = new ViewModelProvider(requireActivity()).get(TooltipTriggerViewModel.class);
         accountViewModel = new ViewModelProvider(this).get(UserAccountViewModel.class);
@@ -101,29 +113,58 @@ public class TimelineFragment extends Fragment {
 
         trajectoryManager = new TrajectoryManager(this, mapView);
         new BottomSheetManager(this, binding.bottomSheetContainer);
+        NormalBottomSheetViewModel bottomSheetViewModel =
+                new ViewModelProvider(this).get(NormalBottomSheetViewModel.class);
+        TimelineDateNavigationViewModel dateNavViewModel =
+                new ViewModelProvider(requireActivity()).get(TimelineDateNavigationViewModel.class);
+        dateNavViewModel.requestedDate.observe(getViewLifecycleOwner(), date -> {
+            if (date != null) {
+                bottomSheetViewModel.setDate(date);
+                dateNavViewModel.clearRequestedDate();
+            }
+        });
         datasetLayerManager = new DatasetLayerManager(this, mapView);
 
         setupTripDetailScroll();
-
-        float ornamentTopMarginPx = 12f * getResources().getDisplayMetrics().density;
 
         compassPlugin = mapView.getPlugin(Plugin.MAPBOX_COMPASS_PLUGIN_ID);
         if (compassPlugin != null) {
             compassPlugin.setEnabled(true);
             compassPlugin.updateSettings(settings -> {
-                settings.setMarginTop(ornamentTopMarginPx);
+                settings.setMarginTop(400);
                 return null;
             });
         }
 
         scaleBarPlugin = mapView.getPlugin(Plugin.MAPBOX_SCALEBAR_PLUGIN_ID);
         if (scaleBarPlugin != null) {
-            scaleBarPlugin.setEnabled(true);
+            float marginLeftPx = 12f * getResources().getDisplayMetrics().density;
+            float extraTopPx = 8f * getResources().getDisplayMetrics().density;
+            float textSizePx = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_SP, 12f, getResources().getDisplayMetrics());
+
             scaleBarPlugin.updateSettings(settings -> {
                 settings.setIsMetricUnits(true);
-                settings.setMarginTop(ornamentTopMarginPx);
+                settings.setTextSize(textSizePx);
                 return null;
             });
+
+            Runnable applyScaleBarInsets = () -> {
+                int barBottom = binding.mapTopAppbar.getBottom();
+                if (barBottom > 0) {
+                    scaleBarPlugin.updateSettings(settings -> {
+                        settings.setIsMetricUnits(true);
+                        settings.setTextSize(textSizePx);
+                        settings.setMarginTop(barBottom + extraTopPx);
+                        settings.setMarginLeft(marginLeftPx);
+                        return null;
+                    });
+                }
+            };
+            binding.mapTopAppbar.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+                if (b > 0 && b != ob) applyScaleBarInsets.run();
+            });
+            binding.mapTopAppbar.post(applyScaleBarInsets);
         }
 
         recordingStateViewModel.getHasAccountError().observe(getViewLifecycleOwner(), hasError -> {
@@ -143,11 +184,13 @@ public class TimelineFragment extends Fragment {
                 tooltipTriggerViewModel.requestTooltipTrigger();
             }
         });
+
         appPreferenceViewModel.getAutoStart().observe(getViewLifecycleOwner(), shouldAutoStart -> {
             if (shouldAutoStart != null && shouldAutoStart) {
                 autoStartRecordingIfPossible();
             }
         });
+
         appPreferenceViewModel.getLocationPermissionPrompted().observe(getViewLifecycleOwner(), isLocationPermissionPrompted -> {
             if (isLocationPermissionPrompted != null && isLocationPermissionPrompted) {
                 return;
@@ -183,13 +226,15 @@ public class TimelineFragment extends Fragment {
     }
 
     private void setupRecordingButton() {
-        FloatingActionButton fab = binding.recordingFab;
-
+        ExtendedFloatingActionButton fab = binding.recordingFab;
+        positionRecordingFab(fab);
         recordingStateViewModel.getIsRecording().observe(getViewLifecycleOwner(), isRecording -> {
             if (isRecording != null) {
-                fab.setImageResource(isRecording ? R.drawable.ic_stop : R.drawable.ic_start);
+                fab.setIconResource(isRecording ? R.drawable.ic_stop : R.drawable.ic_start);
+                fab.setText(isRecording ? R.string.stop : R.string.record);
                 int bgColor = ContextCompat.getColor(requireContext(), isRecording ? R.color.fab_recording : R.color.fab_idle);
                 fab.setBackgroundTintList(ColorStateList.valueOf(bgColor));
+                positionRecordingFab(fab);
             }
         });
 
@@ -211,8 +256,17 @@ public class TimelineFragment extends Fragment {
                 if (sensors.contains(SensorType.ACTIVITY))
                     permissions.add(Manifest.permission.ACTIVITY_RECOGNITION);
                 permissions.add(Manifest.permission.POST_NOTIFICATIONS);
+
                 permissionHelper.requestPermissionsInChain(permissions, recordingStateViewModel::startRecording);
             }
+        });
+    }
+
+    private void positionRecordingFab(ExtendedFloatingActionButton fab) {
+        fab.post(() -> {
+            if (!isAdded()) return;
+            float density = getResources().getDisplayMetrics().density;
+            fab.setTranslationY(-(fab.getHeight() / 2f + 16f * density));
         });
     }
 
@@ -265,7 +319,6 @@ public class TimelineFragment extends Fragment {
             try {
                 if (lm.isProviderEnabled(p)) return p;
             } catch (IllegalArgumentException ignored) {
-                // provider not present on this device
             }
         }
         return null;
@@ -309,7 +362,47 @@ public class TimelineFragment extends Fragment {
 
     private void setupMenu() {
         binding.mapTopAppbar.setNavigationOnClickListener(view ->
-                NavHostFragment.findNavController(this).navigateUp());
+                binding.timelineDrawerLayout.openDrawer(GravityCompat.START));
+
+        binding.timelineNavView.setCheckedItem(R.id.nav_timeline_map);
+        binding.timelineNavView.setNavigationItemSelectedListener(item -> {
+            binding.timelineDrawerLayout.closeDrawer(GravityCompat.START);
+            int id = item.getItemId();
+            if (id == R.id.nav_timeline_map) {
+                return true;
+            }
+            if (id == R.id.nav_calculated_exposures) {
+                Uri uri = Uri.parse(getString(uk.ac.cam.cares.jps.utils.R.string.exposure_overview_link));
+                NavDeepLinkRequest request = NavDeepLinkRequest.Builder.fromUri(uri).build();
+                NavHostFragment.findNavController(this).navigate(request);
+                return true;
+            }
+            if (id == R.id.nav_compare_trips) {
+                Uri uri = Uri.parse(getString(uk.ac.cam.cares.jps.utils.R.string.compare_trips_link));
+                NavDeepLinkRequest request = NavDeepLinkRequest.Builder.fromUri(uri).build();
+                NavHostFragment.findNavController(this).navigate(request);
+                return true;
+            }
+            return false;
+        });
+
+        final int navInitLeft = binding.timelineNavView.getPaddingLeft();
+        final int navInitTop = binding.timelineNavView.getPaddingTop();
+        final int navInitRight = binding.timelineNavView.getPaddingRight();
+        final int navInitBottom = binding.timelineNavView.getPaddingBottom();
+
+        ViewCompat.setOnApplyWindowInsetsListener(binding.timelineNavView, (v, insets) -> {
+            Insets bars = insets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            v.setPadding(
+                    navInitLeft + bars.left,
+                    navInitTop + bars.top,
+                    navInitRight + bars.right,
+                    navInitBottom + bars.bottom);
+            return insets; // keep insets flowing to map_top_appbar
+        });
+        ViewCompat.requestApplyInsets(binding.timelineNavView);
+
         binding.mapTopAppbar.setOnMenuItemClickListener(item -> {
             if (item.getItemId() == R.id.user_menu_item) {
                 UserDialogFragment.show(getParentFragmentManager());
@@ -319,12 +412,24 @@ public class TimelineFragment extends Fragment {
         });
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (binding != null) {
+            binding.timelineNavView.setCheckedItem(R.id.nav_timeline_map);
+        }
+    }
+
     private void setupBackPress() {
         requireActivity().getOnBackPressedDispatcher().addCallback(getViewLifecycleOwner(), new OnBackPressedCallback(true) {
             private boolean doubleBackOnce;
 
             @Override
             public void handleOnBackPressed() {
+                if (binding != null && binding.timelineDrawerLayout.isDrawerOpen(GravityCompat.START)) {
+                    binding.timelineDrawerLayout.closeDrawer(GravityCompat.START);
+                    return;
+                }
                 if (doubleBackOnce) {
                     requireActivity().finishAffinity();
                 } else {

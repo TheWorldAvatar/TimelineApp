@@ -8,17 +8,21 @@ import org.apache.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+
+import androidx.work.BackoffPolicy;
+import androidx.work.Constraints;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.WorkManager;
 
 import uk.ac.cam.cares.jps.sensor.SensorService;
 import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
 import uk.ac.cam.cares.jps.sensor.source.handler.SensorType;
+import uk.ac.cam.cares.jps.sensor.source.worker.SensorUploadWorker;
+import uk.ac.cam.cares.jps.sensor.source.worker.UnsentDataUploadWorker;
 import uk.ac.cam.cares.jps.utils.RepositoryCallback;
-
-import androidx.work.Data;
-import androidx.work.OneTimeWorkRequest;
-import androidx.work.WorkManager;
-
-import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -28,6 +32,9 @@ import java.util.concurrent.TimeUnit;
  * @see SensorService SensorService
  */
 public class SensorRepository {
+    private static final String UNIQUE_SENSOR_UPLOAD_WORK = "pending_sensor_upload";
+    private static final String UNIQUE_UNSENT_UPLOAD_WORK = "pending_unsent_data_upload";
+
     SensorCollectionStateManagerRepository sensorCollectionStateManagerRepository;
     SensorLocalSource sensorLocalSource;
     Logger LOGGER = Logger.getLogger(SensorRepository.class);
@@ -46,6 +53,33 @@ public class SensorRepository {
         this.sensorLocalSource = sensorLocalSource;
 
         serviceIntent = new Intent(context, SensorService.class);
+        schedulePendingUploads();
+    }
+
+    private void schedulePendingUploads() {
+        try {
+            Constraints networkConstraints = new Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build();
+
+            OneTimeWorkRequest sensorUpload = new OneTimeWorkRequest.Builder(SensorUploadWorker.class)
+                    .addTag("dataUploadWork")
+                    .setConstraints(networkConstraints)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .build();
+
+            OneTimeWorkRequest unsentUpload = new OneTimeWorkRequest.Builder(UnsentDataUploadWorker.class)
+                    .addTag("unsentDataUploadWorker")
+                    .setConstraints(networkConstraints)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                    .build();
+
+            WorkManager workManager = WorkManager.getInstance(context);
+            workManager.enqueueUniqueWork(UNIQUE_SENSOR_UPLOAD_WORK, ExistingWorkPolicy.KEEP, sensorUpload);
+            workManager.enqueueUniqueWork(UNIQUE_UNSENT_UPLOAD_WORK, ExistingWorkPolicy.KEEP, unsentUpload);
+        } catch (IllegalStateException e) {
+            LOGGER.warn("WorkManager not yet initialized when creating SensorRepository", e);
+        }
     }
 
     /**
@@ -80,7 +114,7 @@ public class SensorRepository {
             @Override
             public void onSuccess(String result) {
                 serviceIntent.putExtra("deviceId", result);
-                serviceIntent.putParcelableArrayListExtra("selectedSensors", new ArrayList<>(selectedSensorTypes));
+                serviceIntent.putParcelableArrayListExtra("selectedSensors", new ArrayList<>(selectedSensors(selectedSensorTypes)));
                 context.startService(serviceIntent);
                 sensorCollectionStateManagerRepository.setRecordingState(true);
                 callback.onSuccess(true);
@@ -91,6 +125,10 @@ public class SensorRepository {
                 callback.onFailure(error);
             }
         });
+    }
+
+    private List<SensorType> selectedSensors(List<SensorType> selectedSensorTypes) {
+        return selectedSensorTypes != null ? selectedSensorTypes : new ArrayList<>();
     }
 
     public void stopRecording() {
@@ -108,9 +146,6 @@ public class SensorRepository {
      *
      * @param taskId  The unique identifier for the task that needs to be checked.
      * @return `true` if the task with the given ID is running, `false` otherwise.
-     *
-     * This method first checks if the task ID is valid (i.e., not null or empty). If so, the method proceeds
-     * to check if the service associated with the task is currently running by calling {@link #isServiceRunning(Class)}.
      */
     public boolean isTaskRunning(String taskId) {
         if (taskId == null || taskId.isEmpty()) {
@@ -125,10 +160,6 @@ public class SensorRepository {
      *
      * @param serviceClass The class of the service that needs to be checked.
      * @return `true` if the specified service is currently running, `false` otherwise.
-     *
-     * This method uses the {@link ActivityManager} to query the system's running services. It iterates through the list of
-     * running services and checks if the specified service class is among them. If the service is found, the method returns `true`.
-     * Otherwise, it returns `false`.
      */
     public boolean isServiceRunning(Class<?> serviceClass) {
         ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);

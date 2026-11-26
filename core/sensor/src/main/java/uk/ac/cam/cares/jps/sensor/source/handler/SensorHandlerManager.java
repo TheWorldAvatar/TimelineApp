@@ -101,12 +101,15 @@ public class SensorHandlerManager {
     }
 
     /**
-     * Start selected sensor handlers
+     * Start selected sensor handlers after ensuring no stopped-session samples remain buffered.
      */
     public void startSelectedSensors(List<SensorType> selectedSensorTypes) {
         for (SensorType type : selectedSensorTypes) {
             SensorHandler handler = sensorHandlersMap.get(type);
             if (handler != null) {
+                if (!handler.isRunning()) {
+                    handler.clearSensorData();
+                }
                 handler.start(samplingRatesMap.get(type));
             }
         }
@@ -118,7 +121,7 @@ public class SensorHandlerManager {
      */
     public void stopSensors() {
 
-        for(SensorHandler handler : sensorHandlers) {
+        for (SensorHandler handler : sensorHandlers) {
             handler.stop();
         }
 
@@ -133,8 +136,7 @@ public class SensorHandlerManager {
      */
     public Map<String, JSONArray> collectSensorData() {
         Map<String, JSONArray> localStorageData = new HashMap<>();
-        // Directly add all elements of each sensor's data to the single array
-        for(SensorHandler handler : sensorHandlersMap.values()) {
+        for (SensorHandler handler : sensorHandlersMap.values()) {
             if (handler.isRunning()) {
                 JSONArray sensorData;
                 synchronized (handler.getSensorDataLock()) {
@@ -149,13 +151,11 @@ public class SensorHandlerManager {
     }
 
     /**
-     * Clears all sensor data from the memory.
+     * Clears all sensor data from memory.
      */
-    private void clearAllSensorData() {
+    public void clearAllSensorData() {
         for (SensorHandler handler : sensorHandlersMap.values()) {
-            if (handler.isRunning()) {
-                handler.clearSensorData();
-            }
+            handler.clearSensorData();
         }
     }
 

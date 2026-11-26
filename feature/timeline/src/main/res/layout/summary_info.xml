@@ -1,59 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    style="@style/Widget.Material3.CardView.Outlined"
+    android:id="@+id/summary_card"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
+    android:layout_marginVertical="6dp"
     android:layout_marginEnd="8dp"
-    app:cardBackgroundColor="?attr/colorSurface"
-    app:cardCornerRadius="14dp"
+    android:minWidth="104dp"
+    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="0dp"
     app:strokeColor="?attr/colorOutlineVariant"
     app:strokeWidth="1dp">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minWidth="124dp"
+        android:orientation="vertical"
         android:paddingHorizontal="12dp"
         android:paddingVertical="10dp">
 
-        <ImageView
-            android:id="@+id/activity_type"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:src="@drawable/baseline_directions_walk_24"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:tint="?attr/colorPrimary" />
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/activity_type"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:contentDescription="Activity Icon"
+                android:src="@drawable/baseline_directions_walk_24"
+                app:tint="?attr/colorPrimary" />
+
+            <TextView
+                android:id="@+id/activity_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="Walk"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/total_distance"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
+            android:layout_marginTop="4dp"
             android:fontFeatureSettings="tnum"
             android:text="0 m"
-            android:textAppearance="@style/TextAppearance.Material3.TitleSmall"
             android:textColor="?attr/colorOnSurface"
-            android:textStyle="bold"
-            app:layout_constraintBottom_toTopOf="@id/total_time"
-            app:layout_constraintStart_toEndOf="@id/activity_type"
-            app:layout_constraintTop_toTopOf="parent" />
+            android:textSize="15sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/total_time"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:layout_marginTop="2dp"
+            android:layout_marginTop="1dp"
             android:fontFeatureSettings="tnum"
             android:text="0 min"
-            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
             android:textColor="?attr/colorOnSurfaceVariant"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toEndOf="@id/activity_type"
-            app:layout_constraintTop_toBottomOf="@id/total_distance" />
-    </androidx.constraintlayout.widget.ConstraintLayout>
+            android:textSize="11sp" />
+    </LinearLayout>
+
 </com.google.android.material.card.MaterialCardView>

@@ -134,7 +134,26 @@
         <deepLink app:uri="@string/display_options_link" />
     </fragment>
 
+    <fragment
+        android:id="@+id/exposure_overview"
+        android:name="uk.ac.cam.cares.jps.user.exposure.ExposureOverviewFragment"
+        tools:layout="@layout/fragment_exposure_overview">
+        <deepLink app:uri="@string/exposure_overview_link" />
+    </fragment>
+
     <action android:id="@+id/action_global_display_options"
         app:destination="@id/display_options" />
+
+    <action android:id="@+id/action_global_exposure_overview"
+        app:destination="@id/exposure_overview" />
+
+    <fragment
+        android:id="@+id/compare_trips"
+        android:name="uk.ac.cam.cares.jps.user.exposure.CompareTripsFragment"
+        tools:layout="@layout/fragment_compare_trips">
+        <deepLink app:uri="@string/compare_trips_link" />
+    </fragment>
+    <action android:id="@+id/action_global_compare_trips"
+        app:destination="@id/compare_trips" />
 
 </navigation>

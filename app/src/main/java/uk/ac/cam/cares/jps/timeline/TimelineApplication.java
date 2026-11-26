@@ -21,7 +21,7 @@ import java.io.File;
 import java.io.IOException;
 
 @HiltAndroidApp
-public class TimelineApplication extends Application implements Configuration.Provider{
+public class TimelineApplication extends Application implements Configuration.Provider {
     private static final Logger log = Logger.getLogger(TimelineApplication.class);
     @Inject
     HiltWorkerFactory workerFactory;
@@ -43,7 +43,6 @@ public class TimelineApplication extends Application implements Configuration.Pr
 
         log.info("Log4j configured programmatically");
     }
-
 
     @NonNull
     @Override

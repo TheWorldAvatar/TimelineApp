@@ -79,8 +79,10 @@ public class DataModule {
     public ExposureCalculationAgentRepository provideExposureCalculationAgentRepository(
             ExposureCalculationAgentNetworkSource exposureCalculationAgentNetworkSource,
             AppPreferenceRepository appPreferenceRepository,
-            LoginRepository loginRepository) {
-        return new ExposureCalculationAgentRepository(exposureCalculationAgentNetworkSource, appPreferenceRepository, loginRepository);
+            LoginRepository loginRepository,
+            @ApplicationContext Context context) {
+        return new ExposureCalculationAgentRepository(
+                exposureCalculationAgentNetworkSource, appPreferenceRepository, loginRepository, context);
     }
 
     @Provides @Singleton

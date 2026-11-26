@@ -11,6 +11,11 @@
     <string name="select_date">Select date</string>
     <string name="tool_tips">Tool Tips</string>
     <string name="start_stop_recording">Start or Stop Recording</string>
+    <string name="record">Record</string>
+    <string name="stop">Stop</string>
+    <string name="legend_modes">Legend · Modes</string>
+    <string name="legend_trips">Legend · Trips</string>
+    <string name="exposure_summary_eyebrow">Exposure Summary</string>
     <string name="tips_information">(1) Click trajectory lines to find the connected information the bottom sheet. \n(2) To view more or less about a trip, click on the trip name.</string>
     <string name="show_dataset_layer">Show Dataset</string>
     <string name="close">Close</string>
@@ -19,6 +24,4 @@
     <string name="run_trip_agent">Run Calculation</string>
     <string name="previous">Previous</string>
     <string name="next">Next</string>
-    
-
 </resources>

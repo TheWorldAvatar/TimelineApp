@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.appcompat.widget.LinearLayoutCompat
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.appcompat.widget.LinearLayoutCompat xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/bottom_sheet"
     android:layout_width="match_parent"
@@ -13,7 +12,11 @@
     <com.google.android.material.bottomsheet.BottomSheetDragHandleView
         android:id="@+id/drag_handle"
         android:layout_width="match_parent"
-        android:layout_height="28dp" />
+        android:layout_height="wrap_content"
+        android:minHeight="24dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        app:tint="?attr/colorOutlineVariant" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -26,81 +29,89 @@
             android:id="@+id/date_left_bt"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/last_date_button"
-            android:src="@drawable/baseline_keyboard_arrow_left_24"
-            app:tint="?attr/colorOnSurface" />
+            android:background="@drawable/baseline_keyboard_arrow_left_24"
+            android:contentDescription="@string/last_date_button" />
 
-        <LinearLayout
-            android:id="@+id/date_picker_layout"
+        <FrameLayout
             android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackground"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:orientation="horizontal"
-            android:paddingHorizontal="8dp">
+            android:layout_height="wrap_content"
+            android:layout_weight="1">
 
-            <TextView
-                android:id="@+id/date_tv"
+            <LinearLayout
+                android:id="@+id/date_picker_layout"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:fontFeatureSettings="tnum"
-                android:text="Mon, March 14, 2024"
-                android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                android:textColor="?attr/colorOnSurface"
-                android:textStyle="bold" />
+                android:layout_gravity="center"
+                android:background="@drawable/ripple"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:minHeight="48dp"
+                android:orientation="horizontal"
+                android:paddingHorizontal="12dp">
 
-            <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_marginStart="4dp"
-                android:contentDescription="@string/date_picker_button"
-                android:src="@drawable/baseline_arrow_drop_down_24"
-                app:tint="?attr/colorOnSurfaceVariant" />
-        </LinearLayout>
+                <TextView
+                    android:id="@+id/date_tv"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:fontFeatureSettings="tnum"
+                    android:maxLines="1"
+                    android:text="Mon, March 14, 2024"
+                    android:textAlignment="center"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textStyle="bold" />
+
+                <ImageView
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginStart="4dp"
+                    android:contentDescription="@string/date_picker_button"
+                    android:src="@drawable/baseline_arrow_drop_down_24"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+        </FrameLayout>
 
         <ImageButton
             android:id="@+id/date_right_bt"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/next_date_button"
-            android:src="@drawable/baseline_keyboard_arrow_right_24"
-            app:tint="?attr/colorOnSurface" />
+            android:background="@drawable/baseline_keyboard_arrow_right_24"
+            android:contentDescription="@string/next_date_button" />
     </LinearLayout>
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/progress_linear"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:indeterminate="true"
+        app:indicatorColor="?attr/colorPrimary"
+        app:trackColor="?attr/colorSurfaceVariant"
+        app:trackCornerRadius="4dp"
+        app:trackThickness="3dp" />
 
     <TextView
         android:id="@+id/trajectory_info_tv"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
+        android:paddingHorizontal="16dp"
         android:paddingVertical="24dp"
         android:text="@string/more_information_about_the_trajectory_will_be_shown_here"
-        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
         android:textColor="?attr/colorOnSurfaceVariant"
         android:visibility="gone" />
-
-    <com.google.android.material.progressindicator.LinearProgressIndicator
-        android:id="@+id/progress_linear"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginVertical="8dp"
-        android:indeterminate="true"
-        app:trackCornerRadius="4dp" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/summary_recycler_view"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:clipToPadding="false"
-        android:fadingEdge="none"
         android:nestedScrollingEnabled="false"
-        android:overScrollMode="always"
-        android:paddingBottom="8dp"
+        android:overScrollMode="never"
+        android:paddingBottom="12dp"
         android:scrollbars="none" />
 
     <androidx.recyclerview.widget.RecyclerView

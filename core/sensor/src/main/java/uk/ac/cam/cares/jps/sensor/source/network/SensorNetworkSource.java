@@ -12,21 +12,21 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
 
 import okhttp3.HttpUrl;
-import uk.ac.cam.cares.jps.login.LoginRepository;
-import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
-import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
-
-import java.io.IOException;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import uk.ac.cam.cares.jps.login.LoginRepository;
+import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
+import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
 
 import static uk.ac.cam.cares.jps.utils.Utils.computeHash;
+
 /**
  * A class that commits data to the network database.
  */
@@ -88,6 +88,7 @@ public class SensorNetworkSource {
             if (response.isSuccessful()) {
                 String responseBody = response.body() != null ? response.body().string() : "";
                 LOGGER.info("Upload succeeded: " + response.code() + ", messageId " + (messageId - 1)
+                        + ", sessionId " + sessionId
                         + ", server response: " + (responseBody.length() > 500 ? responseBody.substring(0, 500) + "..." : responseBody));
                 return true;
             } else if (response.code() == 401) {
@@ -109,14 +110,6 @@ public class SensorNetworkSource {
     /**
      * Sends a POST request to upload compressed sensor data to the server.
      * If the network request fails, the data is stored locally as unsent data for future retries.
-     * The method also logs the size of the compressed data before uploading.
-     *
-     * @param deviceId The ID of the device from which the data is being uploaded.
-     * @param sessionId The ID of the current session/task. Task id will be different for each recording session (user press start/stop recording).
-     * @param compressedData A byte array containing the GZIP-compressed sensor data.
-     * @param hashedSensorData A String containing the sensor data in hashed form,
-     *                   used for local storage if the network request fails.
-     * @throws UnsupportedEncodingException If the encoding is not supported during conversion to UTF-8.
      */
     public void sendPostRequest(String deviceId, String sessionId, byte[] compressedData, String hashedSensorData, String accessToken) throws UnsupportedEncodingException {
         String url = HttpUrl.get(context.getString(uk.ac.cam.cares.jps.utils.R.string.host_with_port)).newBuilder()
@@ -126,29 +119,28 @@ public class SensorNetworkSource {
         String compressedDataString = Base64.encodeToString(compressedData, Base64.NO_WRAP);
         LOGGER.info("Size of compressed data string: " + compressedDataString.getBytes("UTF-8").length + " bytes");
 
-        // Create a JSON object to include both metadata and the compressed data
         JSONObject postData = new JSONObject();
         try {
             postData.put("deviceId", deviceId);
-            postData.put("messageId", messageId ++);
+            postData.put("messageId", messageId++);
             postData.put("sessionId", sessionId);
-            postData.put("compressedData", compressedDataString); // Include compressed data as a string
+            postData.put("compressedData", compressedDataString);
             LOGGER.info("Sending sensor data with metadata and compressed data.");
         } catch (JSONException e) {
             e.printStackTrace();
         }
 
-        // Convert the structured JSONObject to String
         final String requestBody = postData.toString();
 
         StringRequest postRequest = new StringRequest(Request.Method.POST, url,
-                response ->  LOGGER.info(response),
+                response -> LOGGER.info(response),
                 error -> {
                     LOGGER.error("Failed to send data to the server: " + error.toString());
                     if (!sensorLocalSource.isDataInUnsentData(hashedSensorData)) {
                         UnsentData unsentData = new UnsentData();
                         unsentData.deviceId = deviceId;
-                        unsentData.data = hashedSensorData.toString();
+                        unsentData.sessionId = sessionId;
+                        unsentData.data = hashedSensorData;
                         unsentData.timestamp = System.currentTimeMillis();
                         unsentData.dataHash = hashedSensorData;
                         sensorLocalSource.insertUnsentData(unsentData);

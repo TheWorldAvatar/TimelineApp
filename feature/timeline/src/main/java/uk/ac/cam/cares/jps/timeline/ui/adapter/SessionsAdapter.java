@@ -4,30 +4,38 @@ import static android.view.View.GONE;
 import static android.view.View.VISIBLE;
 
 import android.content.Context;
-import android.util.TypedValue;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageView;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 import uk.ac.cam.cares.jps.timeline.model.bottomsheet.Session;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timeline.viewmodel.SegmentClickInterface;
 import uk.ac.cam.cares.jps.timelinemap.R;
 
-
 public class SessionsAdapter extends RecyclerView.Adapter<SessionsAdapter.SessionsViewHolder> {
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+
     private List<Session> sessionList;
     private TrajectorySegment clickedSegment;
     private final RecyclerView.RecycledViewPool sharedViewPool = new RecyclerView.RecycledViewPool();
     private final SegmentClickInterface segmentClickInterface;
+    private final Map<String, Boolean> expandedBySessionId = new HashMap<>();
 
     public SessionsAdapter(SegmentClickInterface segmentClickInterface) {
         this.sessionList = new ArrayList<>();
@@ -51,52 +59,31 @@ public class SessionsAdapter extends RecyclerView.Adapter<SessionsAdapter.Sessio
     public void onBindViewHolder(@NonNull SessionsViewHolder holder, int position) {
         Session session = sessionList.get(position);
         holder.sessionTitle.setText(session.getSessionTitle());
+        holder.sessionMeta.setText(buildSessionMeta(session));
 
-        NonScrollableLinearLayoutManager layoutManager = new NonScrollableLinearLayoutManager(holder.activityRecyclerView.getContext());
+        boolean isExpanded = !Boolean.FALSE.equals(expandedBySessionId.get(session.getSessionId()));
+        holder.activityRecyclerView.setVisibility(isExpanded ? VISIBLE : GONE);
+        holder.dropdownIcon.setRotation(isExpanded ? 180f : 0f);
 
-        ActivityItemAdapter activityItemAdapter = new ActivityItemAdapter(session.getActivityList(),
+        holder.dropdownLayout.setOnClickListener(view -> {
+            boolean nextExpanded = holder.activityRecyclerView.getVisibility() != VISIBLE;
+            expandedBySessionId.put(session.getSessionId(), nextExpanded);
+            holder.activityRecyclerView.setVisibility(nextExpanded ? VISIBLE : GONE);
+            holder.dropdownIcon.animate().rotation(nextExpanded ? 180f : 0f).setDuration(150).start();
+        });
+
+        NonScrollableLinearLayoutManager layoutManager =
+                new NonScrollableLinearLayoutManager(holder.activityRecyclerView.getContext());
+        ActivityItemAdapter activityItemAdapter = new ActivityItemAdapter(
+                session.getTrajectorySegments(),
                 session.getSessionId(),
                 clickedSegment,
-                segmentClickInterface);
+                segmentClickInterface
+        );
         holder.activityRecyclerView.setLayoutManager(layoutManager);
         holder.activityRecyclerView.setAdapter(activityItemAdapter);
         holder.activityRecyclerView.setRecycledViewPool(sharedViewPool);
         holder.activityRecyclerView.setHasFixedSize(false);
-
-        // TODO: height measurement will break the scroll of recyclerview
-//        holder.activityRecyclerView.post(() -> {
-//            ViewGroup.LayoutParams params = holder.activityRecyclerView.getLayoutParams();
-//
-//            if (clickedSegment != null) {
-//                int maxHeightPx = (int) TypedValue.applyDimension(
-//                        TypedValue.COMPLEX_UNIT_DIP, 500,
-//                        holder.activityRecyclerView.getResources().getDisplayMetrics()
-//                );
-//
-//                // Measure content height
-//                int totalHeight = 0;
-//                for (int i = 0; i < holder.activityRecyclerView.getChildCount(); i++) {
-//                    View child = holder.activityRecyclerView.getChildAt(i);
-//                    if (child != null) {
-//                        totalHeight += child.getMeasuredHeight();
-//                    }
-//                }
-//
-//                params.height = Math.min(totalHeight, maxHeightPx); // Dynamic sizing
-//            } else {
-//                params.height = ViewGroup.LayoutParams.MATCH_PARENT; // Full height if no clickedSegment
-//            }
-//
-//            holder.activityRecyclerView.setLayoutParams(params);
-//        });
-
-        // TODO: scrollTo not really work without height measurement
-        // Ensure we scroll to the correct activity within the session
-//        if (clickedSegment != null && session.containsSegment(clickedSegment)) {
-//            holder.activityRecyclerView.post(() ->
-//                    layoutManager.scrollToPositionWithOffset(clickedSegment.getNumberInSession() - 1, 0)
-//            );
-//        }
     }
 
     @Override
@@ -106,11 +93,49 @@ public class SessionsAdapter extends RecyclerView.Adapter<SessionsAdapter.Sessio
 
     public void setClickedSegment(TrajectorySegment clickedSegment) {
         this.clickedSegment = clickedSegment;
+        if (clickedSegment != null) {
+            expandedBySessionId.put(clickedSegment.getSessionId(), true);
+        }
         notifyDataSetChanged();
     }
 
-    public class NonScrollableLinearLayoutManager extends LinearLayoutManager {
+    private String buildSessionMeta(Session session) {
+        List<TrajectorySegment> segments = session.getTrajectorySegments();
+        if (segments == null || segments.isEmpty()) {
+            return "";
+        }
+        long startMs = segments.get(0).getStartTime();
+        long endMs = segments.get(segments.size() - 1).getEndTime();
+        int totalMeters = 0;
+        for (TrajectorySegment seg : segments) {
+            if (seg.getStartTime() < startMs) startMs = seg.getStartTime();
+            if (seg.getEndTime() > endMs) endMs = seg.getEndTime();
+            totalMeters += Math.max(0, seg.getDistanceTraveled());
+        }
 
+        ZoneId zone = ZoneId.systemDefault();
+        String startStr = Instant.ofEpochMilli(startMs).atZone(zone).format(TIME_FORMATTER);
+        String endStr = Instant.ofEpochMilli(endMs).atZone(zone).format(TIME_FORMATTER);
+
+        long totalMinutes = Math.max(1, Math.round((endMs - startMs) / 60000.0));
+        String durationStr = formatDuration(totalMinutes);
+        String distanceStr = totalMeters >= 1000
+                ? String.format(Locale.getDefault(), "%.1f km", totalMeters / 1000.0)
+                : totalMeters + " m";
+
+        return startStr + " – " + endStr + " · " + durationStr + " · " + distanceStr;
+    }
+
+    private String formatDuration(long totalMinutes) {
+        long hours = totalMinutes / 60;
+        long minutes = totalMinutes % 60;
+        if (hours > 0) {
+            return minutes > 0 ? hours + " hr " + minutes + " min" : hours + " hr";
+        }
+        return minutes + " min";
+    }
+
+    public static class NonScrollableLinearLayoutManager extends LinearLayoutManager {
         public NonScrollableLinearLayoutManager(Context context) {
             super(context, VERTICAL, false);
         }
@@ -123,23 +148,18 @@ public class SessionsAdapter extends RecyclerView.Adapter<SessionsAdapter.Sessio
 
     public static class SessionsViewHolder extends RecyclerView.ViewHolder {
         TextView sessionTitle;
+        TextView sessionMeta;
+        ImageView dropdownIcon;
         RecyclerView activityRecyclerView;
         View dropdownLayout;
 
         public SessionsViewHolder(@NonNull View sessionView) {
             super(sessionView);
             sessionTitle = sessionView.findViewById(R.id.session_id);
+            sessionMeta = sessionView.findViewById(R.id.session_meta);
+            dropdownIcon = sessionView.findViewById(R.id.session_dropdown);
             activityRecyclerView = sessionView.findViewById(R.id.activity_items);
             dropdownLayout = sessionView.findViewById(R.id.session_dropdown_layout);
-
-            dropdownLayout.setOnClickListener(view -> {
-                if (activityRecyclerView.getVisibility() == VISIBLE) {
-                    activityRecyclerView.setVisibility(GONE);
-                } else {
-                    activityRecyclerView.setVisibility(VISIBLE);
-                }
-            });
         }
     }
 }
-

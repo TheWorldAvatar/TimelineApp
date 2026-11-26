@@ -37,6 +37,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -45,16 +46,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
+import uk.ac.cam.cares.jps.sensor.ui.RecordingViewModel;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.ActivityTrajectory;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectoryByDate;
 import uk.ac.cam.cares.jps.timeline.model.trajectory.TrajectorySegment;
 import uk.ac.cam.cares.jps.timeline.viewmodel.NormalBottomSheetViewModel;
 import uk.ac.cam.cares.jps.timeline.viewmodel.TrajectoryViewModel;
-import uk.ac.cam.cares.jps.ui.impl.viewmodel.DisplayOptionsViewModel;   // CHANGE: ADD import (lives in core:ui-impl)
-import uk.ac.cam.cares.jps.timelinemap.R;
-
 import uk.ac.cam.cares.jps.timeline.viewmodel.TripAgentViewModel;
-import java.time.LocalDate;
+import uk.ac.cam.cares.jps.timelinemap.R;
+import uk.ac.cam.cares.jps.ui.impl.viewmodel.DisplayOptionsViewModel;
 
 /**
  * An UI manager that manages the drawing and removing of trajectories received from server
@@ -73,12 +73,11 @@ public class TrajectoryManager {
     private static final double OTHER_SESSION_OPACITY = 0.3;
 
     private enum ColorMode { TRIP, ACTIVITY }
-    private ColorMode colorMode = ColorMode.ACTIVITY;
+    private ColorMode colorMode = ColorMode.TRIP;
     private TrajectoryByDate currentTrajectory;
     private ActivityTrajectory activityTrajectory;   // activity-split data for the current date
     private LocalDate activityFetchDate;             // date a fetch was already requested for
     private View legendRoot;
-    // CHANGE: the map button is gone, the choice now comes from the Display Options screen through this ViewModel
     private final DisplayOptionsViewModel displayOptionsViewModel;
     private final MapView mapView;                   // needed by setTrajectoryVisible() outside the constructor
     private boolean trajectoryVisible = true;
@@ -90,55 +89,13 @@ public class TrajectoryManager {
     private boolean paintedActivity = false;   // true while the map shows the activity layer (not the trips layer)
     private String selectedColor;
 
-
-    /**
-     * Constructor of the class
-     *
-     * @param fragment Host fragment
-     * @param mapView  Mapbox map view
-     */
-    /*
-    public TrajectoryManager(Fragment fragment, MapView mapView) {
-        trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
-        normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
-
-        activityColors.put("walking", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorPrimary));
-        activityColors.put("still", getColorHex(fragment.requireContext(), R.attr.colorQuaternary));
-        activityColors.put("vehicle", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorSecondary));
-        activityColors.put("bike", getColorHex(fragment.requireContext(), com.google.android.material.R.attr.colorTertiary));
-        activityColors.put("default", getColorHex(fragment.requireContext(), R.attr.colorDefault));
-
-        String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
-
-        trajectoryViewModel.trajectory.observe(fragment.getViewLifecycleOwner(), trajectoryByDate -> {
-            trajectoryViewModel.removeAllClicked();
-            if (!trajectoryByDate.getDate().equals(normalBottomSheetViewModel.selectedDate.getValue())) {
-                // trajectoryViewModel.setClicked(null);
-                trajectoryViewModel.setFetching(true);
-                return;
-            }
-
-            mapView.getMapboxMap().getStyle(style -> {
-                // trajectoryViewModel.setClicked(null);
-                removeAllLayers(style);
-                if (!trajectoryByDate.getTrajectoryStr().isEmpty()) {
-                    paintTrajectoryByActivity(style, trajectoryByDate, activityColors, "default");
-                    addTrajectoryClickListener(mapView, selectedColor, fragment.getViewLifecycleOwner());
-                }
-            });
-
-            resetCameraCentre(mapView, trajectoryByDate);
-        });
-    }
-    */
-    // was: activityColors keyed by "walking"/"still"/"vehicle"/"bike"/"default"
     private final Map<String, String> tripColors = new HashMap<>();
 
     public TrajectoryManager(Fragment fragment, MapView mapView) {
         trajectoryViewModel = new ViewModelProvider(fragment).get(TrajectoryViewModel.class);
         normalBottomSheetViewModel = new ViewModelProvider(fragment).get(NormalBottomSheetViewModel.class);
         tripAgentViewModel = new ViewModelProvider(fragment).get(TripAgentViewModel.class);
-        // CHANGE: activity-scoped, so it is the same instance DisplayOptionsFragment writes to
+        RecordingViewModel recordingViewModel = new ViewModelProvider(fragment).get(RecordingViewModel.class);
         displayOptionsViewModel = new ViewModelProvider(fragment.requireActivity()).get(DisplayOptionsViewModel.class);
         this.mapView = mapView;
 
@@ -157,25 +114,19 @@ public class TrajectoryManager {
         String selectedColor = getColorHex(fragment.requireContext(), R.attr.colorSelected);
         this.selectedColor = selectedColor;
 
-        // Run trip & exposure calculation when requested from Advanced Options
-        displayOptionsViewModel.runCalculationRequested.observe(fragment.getViewLifecycleOwner(), requested -> {
-            if (Boolean.TRUE.equals(requested)) {
-                displayOptionsViewModel.clearRunCalculationRequest();
-                tripAgentViewModel.runTripAgent(normalBottomSheetViewModel.selectedDate.getValue());
-            }
-        });
-
-        tripAgentViewModel.isRunning.observe(fragment.getViewLifecycleOwner(), running ->
-                displayOptionsViewModel.setCalculationRunning(Boolean.TRUE.equals(running)));
-
-        // run the trip agent and then the exposure calculation every 5 minutes while this screen is visible
-        new AutoTripRunner(fragment.getViewLifecycleOwner(), tripAgentViewModel, normalBottomSheetViewModel);
+        // run the trip agent and then the exposure calculation every 5 minutes while this screen is visible (paused while recording)
+        new AutoTripRunner(
+                fragment.getViewLifecycleOwner(),
+                tripAgentViewModel,
+                normalBottomSheetViewModel,
+                recordingViewModel.getIsRecording()
+        );
 
         // colouring by trips/visits or by activity, chosen on the Display Options screen
         legendRoot = fragment.requireView();
-        // start from whatever was already chosen (the ViewModel outlives this manager)
         colorMode = toColorMode(displayOptionsViewModel.getTrajectoryView());
         updateModeUi();
+
         // activity-split data arrives separately, only when Activity mode needs it
         trajectoryViewModel.activityTrajectory.observe(fragment.getViewLifecycleOwner(), data -> {
             if (data == null || currentTrajectory == null || !data.getDate().equals(currentTrajectory.getDate())) {
@@ -196,13 +147,10 @@ public class TrajectoryManager {
             activityFetchDate = null;
             if (colorMode == ColorMode.ACTIVITY) {
                 Toast.makeText(mapView.getContext(), "Could not load activity data", Toast.LENGTH_SHORT).show();
-                // CHANGE: fall back through the ViewModel so the toggle on the Display Options screen shows Trips & visits
-                // again too. The observer below then switches the mode, legend and repaints the map.
                 displayOptionsViewModel.setTrajectoryView(DisplayOptionsViewModel.TrajectoryView.TRIPS_AND_VISITS);
             }
         });
 
-        // CHANGE: replaces modeButton.setOnClickListener. Reacts to the choice made on the Display Options screen.
         displayOptionsViewModel.trajectoryView.observe(fragment.getViewLifecycleOwner(), view -> {
             ColorMode newMode = toColorMode(view);
             if (newMode == colorMode) {
@@ -285,8 +233,6 @@ public class TrajectoryManager {
                             Feature feature = clickedFeature.getFeature();
 
                             if (paintedActivity) {
-                                // Activity features have their own ids, so map the tap onto the trips
-                                // segment the bottom sheet knows about and select that one.
                                 TrajectorySegment tripSegment = resolveTripSegment(feature, point);
                                 if (tripSegment != null) {
                                     trajectoryViewModel.setClickedSegment(tripSegment.getId(), tripSegment.getSessionId());
@@ -337,12 +283,6 @@ public class TrajectoryManager {
         }
     }
 
-    /**
-     * Activity features have no ids that match the trips data, so a tap on the activity layer is
-     * resolved to a trips segment. If the tapped feature carries start_time/end_time, only trips
-     * segments that overlap that time range are considered; the one whose geometry passes closest
-     * to the tap wins. Without times it is purely the closest geometry.
-     */
     private TrajectorySegment resolveTripSegment(Feature feature, Point tap) {
         if (currentTrajectory == null) {
             return null;
@@ -386,7 +326,6 @@ public class TrajectoryManager {
         return null;
     }
 
-    /** Distance from a point to a GeoJSON LineString/MultiLineString/Point, in degrees (longitude scaled by cosLat). */
     private double distanceToGeometry(JSONObject geom, double lng, double lat, double cosLat) {
         if (geom == null) {
             return Double.MAX_VALUE;
@@ -438,11 +377,6 @@ public class TrajectoryManager {
         return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
     }
 
-    /**
-     * Activity mode selection: fade the whole activity layer and draw only the activity pieces that belong
-     * to the selected trips segment on top at full opacity, with the normal activity colours (no highlight
-     * colour). If no piece can be matched, nothing is faded so the map never ends up all faded.
-     */
     private void showSelectedActivityPieces(Style style, TrajectorySegment segment) {
         if (layerId == null || !style.styleLayerExists(layerId)) {
             return;
@@ -474,10 +408,6 @@ public class TrajectoryManager {
         }
     }
 
-    /**
-     * Picks the painted activity features that belong to a trips segment: by time overlap when the features
-     * carry start_time/end_time, otherwise (or if that matches nothing) by lying on the segment's geometry.
-     */
     private JSONArray selectActivityPieces(TrajectorySegment segment) {
         JSONArray byTime = new JSONArray();
         JSONArray byGeometry = new JSONArray();
@@ -515,7 +445,6 @@ public class TrajectoryManager {
         return byTime.length() > 0 ? byTime : byGeometry;
     }
 
-    /** True if at least two of a feature's first/middle/last vertices lie within MATCH_TOLERANCE of the geometry. */
     private boolean liesOnGeometry(JSONObject featureGeom, JSONObject segmentGeom, double cosLat) throws JSONException {
         List<double[]> vertices = flattenVertices(featureGeom);
         if (vertices.isEmpty() || segmentGeom == null) {
@@ -527,7 +456,7 @@ public class TrajectoryManager {
         int last = -1;
         for (int index : samples) {
             if (index == last) {
-                continue;   // short features: do not count the same vertex twice
+                continue;
             }
             last = index;
             counted++;
@@ -577,10 +506,6 @@ public class TrajectoryManager {
         }
     }
 
-    /**
-     * Adds the dominant activity from activity_proportions when the layer has no flat
-     * activity_type property, then logs the values used for map colouring.
-     */
     private String normalizeActivityTypes(String trajectory) {
         try {
             JSONObject geojson = new JSONObject(trajectory);
@@ -669,10 +594,6 @@ public class TrajectoryManager {
         return null;
     }
 
-    /**
-     * Maps names the backend may send (Google-style IN_VEHICLE, ON_BICYCLE, ON_FOOT, ...) onto the labels
-     * used for colouring: walking, still, vehicle, bike. Anything else is returned lower-cased and unchanged.
-     */
     private String canonicalActivityType(String raw) {
         String t = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
         switch (t) {
@@ -702,7 +623,6 @@ public class TrajectoryManager {
             return null;
         }
 
-        // sum per canonical type, so e.g. WALKING + ON_FOOT count together
         Map<String, Double> totals = new HashMap<>();
         Iterator<String> activityTypes = proportions.keys();
         while (activityTypes.hasNext()) {
@@ -746,14 +666,12 @@ public class TrajectoryManager {
             return;
         }
         if (colorMode == ColorMode.ACTIVITY) {
-            // The trips layer has no activity_type, so activity colouring uses its own data.
             LocalDate date = currentTrajectory.getDate();
             if (activityTrajectory != null && date.equals(activityTrajectory.getDate())
                     && !activityTrajectory.getGeojson().isEmpty()) {
                 paintTrajectoryByActivity(style, activityTrajectory.getGeojson(), activityColors, "default");
                 paintedActivity = true;
             } else {
-                // not loaded yet (or no activity data): keep showing the trips colouring
                 paintTrajectoryByUserId(style, currentTrajectory, tripColors, "default");
                 if (activityTrajectory == null && !date.equals(activityFetchDate)) {
                     activityFetchDate = date;
@@ -766,12 +684,10 @@ public class TrajectoryManager {
         applyTrajectoryVisibility(style);
     }
 
-    /** Maps the shared ViewModel's choice onto this class's colour mode. */
     private static ColorMode toColorMode(DisplayOptionsViewModel.TrajectoryView view) {
         return view == DisplayOptionsViewModel.TrajectoryView.ACTIVITY ? ColorMode.ACTIVITY : ColorMode.TRIP;
     }
 
-    /** Updates the legend to match the colour mode. (The toggle itself now lives on the Display Options screen.) */
     private void updateModeUi() {
         boolean activity = colorMode == ColorMode.ACTIVITY;
 
@@ -798,21 +714,34 @@ public class TrajectoryManager {
             ((TextView) legendRoot.findViewById(texts[i])).setText(labels[i]);
         }
 
-        // Keep the bottom of the legend card 16dp above the bottom sheet regardless of 1-row vs 3-row height
         View legendCard = legendRoot.findViewById(R.id.legend_card);
         if (legendCard != null) {
-            legendCard.post(() -> {
-                float gapPx = 16f * legendCard.getResources().getDisplayMetrics().density;
-                legendCard.setTranslationY(-(legendCard.getHeight() / 2f + gapPx));
-            });
+            legendCard.post(() -> positionLegendCard(legendCard));
         }
     }
 
-    /**
-     * Fades every segment except the selected one: other segments of the same session keep
-     * their colour but fade; segments of other sessions turn grey and fade.
-     * The selected segment is drawn on top. Passing null restores the normal look.
-     */
+    private void positionLegendCard(View legendCard) {
+        View bottomSheet = legendRoot.findViewById(R.id.bottom_sheet_container);
+        if (bottomSheet == null) {
+            return;
+        }
+        float density = legendRoot.getResources().getDisplayMetrics().density;
+        float gap = 12f * density;
+        float targetBottom = bottomSheet.getY() - gap;
+
+        View recordingFab = legendRoot.findViewById(R.id.recording_fab);
+        if (recordingFab != null && recordingFab.getVisibility() == View.VISIBLE) {
+            boolean horizontalOverlap = recordingFab.getX() < legendCard.getX() + legendCard.getWidth()
+                    && recordingFab.getX() + recordingFab.getWidth() > legendCard.getX();
+            float fabTopAboveSheet = bottomSheet.getY() - recordingFab.getY();
+            if (horizontalOverlap && fabTopAboveSheet > 0 && fabTopAboveSheet < 140f * density) {
+                targetBottom = Math.min(targetBottom, recordingFab.getY() - gap);
+            }
+        }
+
+        legendCard.setTranslationY(targetBottom - legendCard.getBottom());
+    }
+
     private void updateSessionGreyOut(Style style, TrajectorySegment clickedSegment) {
         if (style == null || layerId == null || baseColorExpression == null
                 || !style.styleLayerExists(layerId)) {
@@ -872,7 +801,7 @@ public class TrajectoryManager {
     }
 
     private void highlightTrajectorySegment(Style style, TrajectorySegment clickedSegment, String selectedColor) {
-        removeHighlightLayer(style); // Ensure no duplicate highlights
+        removeHighlightLayer(style);
 
         try {
             JSONObject paint = new JSONObject();
@@ -911,9 +840,6 @@ public class TrajectoryManager {
         }
     }
 
-    /**
-     * Paints the trajectory on the map, ensuring each segment gets a unique ID.
-     */
     private void paintTrajectoryByActivity(Style style, String trajectory, Map<String, String> activityColors, String mode) {
         trajectory = normalizeActivityTypes(trajectory);
         activityGeojsonPainted = trajectory;
@@ -940,11 +866,9 @@ public class TrajectoryManager {
 
             this.layerId = "trajectory_layer_" + mode;
 
-
             JSONArray colorExpression = new JSONArray();
             colorExpression.put("match");
             colorExpression.put(new JSONArray().put("get").put("activity_type"));
-
 
             for (Map.Entry<String, String> entry : activityColors.entrySet()) {
                 if (!entry.getKey().equals("default")) {
@@ -952,7 +876,6 @@ public class TrajectoryManager {
                     colorExpression.put(entry.getValue());
                 }
             }
-
 
             colorExpression.put(activityColors.get("default"));
             baseColorExpression = colorExpression;
@@ -965,7 +888,6 @@ public class TrajectoryManager {
             throw new RuntimeException(e);
         }
 
-
         Expected<String, None> layerSuccess = style.addStyleLayer(
                 Objects.requireNonNull(Value.fromJson(layerJson.toString()).getValue()),
                 new LayerPosition(null, null, null)
@@ -975,10 +897,6 @@ public class TrajectoryManager {
         layerNames.add(mode);
     }
 
-    /**
-     * Paints the trajectory on the map, coloring segments by trip number:
-     * trip == 0 gets one color, any other trip number gets the other.
-     */
     private void paintTrajectoryByUserId(Style style, TrajectoryByDate trajectoryArr, Map<String, String> tripColors, String mode) {
         String trajectory = trajectoryArr.getTrajectoryStr();
         JSONObject sourceJson = new JSONObject();
@@ -1010,7 +928,6 @@ public class TrajectoryManager {
 
             for (Map.Entry<String, String> entry : tripColors.entrySet()) {
                 if (!entry.getKey().equals("default")) {
-                    // "trip" is numeric in the GeoJSON, so the match case must be a numeric literal, not a string
                     colorExpression.put(Integer.parseInt(entry.getKey()));
                     colorExpression.put(entry.getValue());
                 }

@@ -32,6 +32,12 @@ public class UnsentData {
     public String deviceId;
 
     /**
+     * Id associated with the recording session.
+     */
+    @ColumnInfo(name = "session_id")
+    public String sessionId;
+
+    /**
      * Time of the data being processed.
      */
     @ColumnInfo(name = "timestamp")

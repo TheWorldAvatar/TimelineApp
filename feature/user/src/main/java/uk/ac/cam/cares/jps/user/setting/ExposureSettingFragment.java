@@ -4,27 +4,37 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ArrayAdapter;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.navigation.fragment.NavHostFragment;
+
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Locale;
 
 import dagger.hilt.android.AndroidEntryPoint;
+import uk.ac.cam.cares.jps.model.ExposureDataset;
 import uk.ac.cam.cares.jps.ui.impl.viewmodel.AppPreferenceViewModel;
 import uk.ac.cam.cares.jps.user.databinding.FragmentExposureSettingBinding;
-import android.widget.ArrayAdapter;
-import java.util.List;
-import uk.ac.cam.cares.jps.model.ExposureDataset;
 
 @AndroidEntryPoint
 public class ExposureSettingFragment extends Fragment {
+
+    public static final String ARG_PENDING_CALC_DATE = "pending_calc_date";
+    public static final String RESULT_KEY_AUTO_CALCULATE = "exposure_settings_auto_calculate";
+    public static final String RESULT_CALC_DATE = "calc_date";
 
     private FragmentExposureSettingBinding binding;
     private AppPreferenceViewModel appPreferenceViewModel;
     private ExposureDataset selectedDataset;
     private CalcType selectedCalcType;
+    private String pendingCalcDate;
 
     private enum CalcType {
         TRAJECTORY_COUNT("Trajectory Count", "TrajectoryCount"),
@@ -51,7 +61,7 @@ public class ExposureSettingFragment extends Fragment {
         }
 
         @Override
-        public String toString() { return label; } // shown in the dropdown
+        public String toString() { return label; }
     }
 
     @Nullable
@@ -66,16 +76,21 @@ public class ExposureSettingFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        // Datasets arrive asynchronously from the KG query.
+        pendingCalcDate = getArguments() != null ? getArguments().getString(ARG_PENDING_CALC_DATE) : null;
+        if (pendingCalcDate != null && !pendingCalcDate.isEmpty()) {
+            try {
+                LocalDate date = LocalDate.parse(pendingCalcDate);
+                String formatted = date.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()));
+                binding.btnSave.setText("Save & Calculate (" + formatted + ")");
+            } catch (Exception ignored) {
+                binding.btnSave.setText("Save & Calculate");
+            }
+        }
+
         appPreferenceViewModel.getAvailableDatasets().observe(getViewLifecycleOwner(), datasets -> {
-            // NOTE: the dropdown rows are rendered with ExposureDataset.toString(),
-            // so make sure that method returns getLabel() and NOT the IRI.
             ArrayAdapter<ExposureDataset> adapter = new ArrayAdapter<>(
                     requireContext(), android.R.layout.simple_list_item_1, datasets);
             binding.inputDataset.setAdapter(adapter);
-
-            // CHANGED: the old inline "saved IRI -> label" loop was moved into
-            // restoreDatasetSelection() so both observers can share it.
             restoreDatasetSelection();
         });
 
@@ -88,15 +103,9 @@ public class ExposureSettingFragment extends Fragment {
                 CalcType.values()
         );
         binding.inputCalcType.setAdapter(calcTypeAdapter);
-
         binding.inputCalcType.setOnItemClickListener((parent, v, position, id) ->
                 selectedCalcType = (CalcType) parent.getItemAtPosition(position));
 
-        // CHANGED: this observer used to do binding.inputDataset.setText(v), which
-        // wrote the raw IRI into the field whenever the saved/default IRI arrived
-        // before (or without) a matching entry in the dataset list. It must never
-        // touch the text field directly. It now just retries the label lookup,
-        // because the saved IRI may arrive after the dataset list.
         appPreferenceViewModel.getExposureDataset().observe(getViewLifecycleOwner(),
                 v -> restoreDatasetSelection());
 
@@ -105,17 +114,19 @@ public class ExposureSettingFragment extends Fragment {
                 CalcType c = CalcType.fromValue(v);
                 if (c != null) {
                     selectedCalcType = c;
-                    binding.inputCalcType.setText(c.toString(), false); // shows "Trajectory Count"
+                    binding.inputCalcType.setText(c.toString(), false);
                 } else {
-                    binding.inputCalcType.setText(v, false); // fallback, shouldn't normally happen
+                    binding.inputCalcType.setText(v, false);
                 }
             }
         });
+
         appPreferenceViewModel.getExposureDistance().observe(getViewLifecycleOwner(), v -> {
             if (v != null && !v.isEmpty() && binding.inputDistance.getText().toString().isEmpty()) {
                 binding.inputDistance.setText(v);
             }
         });
+
         appPreferenceViewModel.loadExposureParams();
         appPreferenceViewModel.loadAvailableDatasets();
 
@@ -150,37 +161,31 @@ public class ExposureSettingFragment extends Fragment {
                     ? selectedCalcType.getValue()
                     : binding.inputCalcType.getText().toString();
 
-            // The IRI is still what gets stored; it just never appears in the UI.
             appPreferenceViewModel.setExposureDataset(selectedDataset.getIri());
             appPreferenceViewModel.setExposureDatasetTableName(selectedDataset.getDerivedTableName());
             appPreferenceViewModel.setExposureCalcType(calcTypeValue);
             appPreferenceViewModel.setExposureDistance(distanceText);
-            Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show();
+
+            if (pendingCalcDate != null && !pendingCalcDate.isEmpty()) {
+                Bundle result = new Bundle();
+                result.putString(RESULT_CALC_DATE, pendingCalcDate);
+                getParentFragmentManager().setFragmentResult(RESULT_KEY_AUTO_CALCULATE, result);
+                Toast.makeText(requireContext(), "Saved — starting calculation…", Toast.LENGTH_SHORT).show();
+                NavHostFragment.findNavController(this).navigateUp();
+            } else {
+                Toast.makeText(requireContext(), "Saved", Toast.LENGTH_SHORT).show();
+            }
         });
     }
 
-    /**
-     * CHANGED (new method): translate the saved dataset IRI into a dataset label.
-     *
-     * Two things load asynchronously: the list of datasets (KG query) and the saved
-     * IRI (preferences). Either can arrive first, so both observers call this and it
-     * only does something once BOTH are available.
-     *
-     * If the saved IRI is not in the list (e.g. an old default that no longer exists
-     * in the KG), the field is left empty. The user then has to pick a dataset, and
-     * the save button already enforces that, so the IRI is never displayed.
-     */
     private void restoreDatasetSelection() {
-        if (binding == null || selectedDataset != null) return; // view gone, or already resolved/picked
-
+        if (binding == null || selectedDataset != null) return;
         List<ExposureDataset> datasets = appPreferenceViewModel.getAvailableDatasets().getValue();
         String savedIri = appPreferenceViewModel.getExposureDataset().getValue();
         if (datasets == null || datasets.isEmpty() || savedIri == null || savedIri.isEmpty()) return;
-
         for (ExposureDataset d : datasets) {
             if (d.getIri().equals(savedIri)) {
                 selectedDataset = d;
-                // 'false' = don't filter the dropdown list down to this one entry
                 binding.inputDataset.setText(d.getLabel(), false);
                 return;
             }

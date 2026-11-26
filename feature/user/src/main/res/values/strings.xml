@@ -104,9 +104,9 @@
     <string name="features_overview_title">Discover helpful features</string>
     <string name="faq_title">FAQ</string>
     <string name="faq_description">Have questions? Here are some helpful answers.</string>
-    <string name="faw_no_permission_grant_title">What happens if I don’t grant permi ssion for some sensors?</string>
+    <string name="faw_no_permission_grant_title">What happens if I don’t grant permission for some sensors?</string>
     <string name="faw_no_permission_grant_description">If you deny permission for a sensor, that sensor will be disabled during recording. Other enabled sensors will continue functioning. You can always enable them later in Sensor Settings.</string>
-    <string name="faq_auto_delete_data_title">Will my data be automatical ly deleted?</string>
+    <string name="faq_auto_delete_data_title">Will my data be automatically deleted?</string>
     <string name="faq_auto_delete_data_description">No. All session data stays on your device and the cloud until you manually delete it via the Timeline Settings page.</string>
     <string name="faq_data_storage_title">How is my recording data stored?</string>
     <string name="faq_data_storage_description">Your data is stored locally and in the cloud, session by session. It includes movement data, time intervals, and optional sensor input.</string>

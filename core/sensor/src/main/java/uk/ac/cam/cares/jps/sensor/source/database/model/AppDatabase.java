@@ -26,7 +26,7 @@ import uk.ac.cam.cares.jps.sensor.source.database.model.entity.RelativeHumidity;
 import uk.ac.cam.cares.jps.sensor.source.database.model.entity.SoundLevel;
 import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
 
-@Database(entities = {LocationData.class, Acceleration.class, LightData.class, MagnetFieldStrength.class, Gravity.class, GyroData.class, Pressure.class, RelativeHumidity.class, SoundLevel.class, UnsentData.class, ActivityData.class}, exportSchema = false, version = 4)
+@Database(entities = {LocationData.class, Acceleration.class, LightData.class, MagnetFieldStrength.class, Gravity.class, GyroData.class, Pressure.class, RelativeHumidity.class, SoundLevel.class, UnsentData.class, ActivityData.class}, exportSchema = false, version = 5)
 public abstract class AppDatabase extends RoomDatabase {
     public abstract LocationDao locationDao();
 

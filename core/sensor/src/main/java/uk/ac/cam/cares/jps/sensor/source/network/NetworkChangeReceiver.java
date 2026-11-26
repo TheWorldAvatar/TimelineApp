@@ -1,35 +1,25 @@
 package uk.ac.cam.cares.jps.sensor.source.network;
 
-
-
-import static uk.ac.cam.cares.jps.utils.Utils.compressData;
-
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
-import android.os.Handler;
-import android.os.Looper;
 
-
+import androidx.work.BackoffPolicy;
+import androidx.work.Constraints;
 import androidx.work.Data;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkManager;
 
 import org.apache.log4j.Logger;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import uk.ac.cam.cares.jps.sensor.source.database.SensorLocalSource;
-import uk.ac.cam.cares.jps.sensor.source.database.model.entity.UnsentData;
-import uk.ac.cam.cares.jps.sensor.source.worker.SensorUploadWorker;
 import uk.ac.cam.cares.jps.sensor.source.worker.UnsentDataUploadWorker;
 
 /**
@@ -41,7 +31,6 @@ public class NetworkChangeReceiver extends BroadcastReceiver {
 
     private final SensorLocalSource sensorLocalSource;
     private final SensorNetworkSource sensorNetworkSource;
-    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
     private String taskId;
     private final Logger LOGGER = Logger.getLogger(NetworkChangeReceiver.class);
 
@@ -63,12 +52,20 @@ public class NetworkChangeReceiver extends BroadcastReceiver {
             Data unsentDataWorkerParam = new Data.Builder()
                     .putString("taskId", taskId)
                     .build();
+            Constraints constraints = new Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build();
             OneTimeWorkRequest unsentDataUploadRequest = new OneTimeWorkRequest.Builder(
                     UnsentDataUploadWorker.class)
                     .addTag("unsentDataUploadWorker")
+                    .setConstraints(constraints)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                     .setInputData(unsentDataWorkerParam)
                     .build();
-            WorkManager.getInstance(context).enqueue(unsentDataUploadRequest);
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                    "pending_unsent_data_upload",
+                    ExistingWorkPolicy.KEEP,
+                    unsentDataUploadRequest);
         }
     }
 
