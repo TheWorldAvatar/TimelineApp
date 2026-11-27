@@ -56,15 +56,11 @@ import uk.ac.cam.cares.jps.sensor.source.handler.LocationHandler;
 import uk.ac.cam.cares.jps.sensor.source.handler.SensorHandlerManager;
 import uk.ac.cam.cares.jps.sensor.source.handler.SensorType;
 import uk.ac.cam.cares.jps.sensor.source.network.NetworkChangeReceiver;
-import uk.ac.cam.cares.jps.sensor.source.network.SensorNetworkSource;
 import uk.ac.cam.cares.jps.sensor.source.worker.BufferFlushWorker;
 import uk.ac.cam.cares.jps.sensor.source.worker.SensorUploadWorker;
 import uk.ac.cam.cares.jps.sensor.source.worker.UnsentDataUploadWorker;
 import uk.ac.cam.cares.jps.utils.RepositoryCallback;
 
-/**
- * A foreground service that keeps sensor recording running even when the app is terminated by user or the system.
- */
 @AndroidEntryPoint
 public class SensorService extends Service {
 
@@ -72,8 +68,6 @@ public class SensorService extends Service {
     private static final String UNIQUE_SENSOR_UPLOAD_WORK = "pending_sensor_upload";
     private static final String UNIQUE_UNSENT_UPLOAD_WORK = "pending_unsent_data_upload";
 
-    @Inject
-    SensorNetworkSource sensorNetworkSource;
     @Inject
     SensorHandlerManager sensorHandlerManager;
     @Inject
@@ -88,8 +82,8 @@ public class SensorService extends Service {
     private final int SENSOR_FRAGMENT_REQUEST_CODE = 100;
     private final Logger LOGGER = Logger.getLogger(SensorService.class);
     private SensorActivityClassifier activityClassifier;
-    Timer bufferWorkerTimer = new Timer();
-    Timer uploadWorkerTimer = new Timer();
+    private Timer bufferWorkerTimer;
+    private Timer uploadWorkerTimer;
     private Map<String, Integer> sensorSettingsMap;
 
     private final ExecutorService flushExecutor = Executors.newSingleThreadExecutor();
@@ -97,10 +91,12 @@ public class SensorService extends Service {
     private volatile String currentSessionId;
     private volatile String currentSelectedSensorsJson;
     private volatile boolean isDestroyed = false;
+    private boolean isNetworkReceiverRegistered = false;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        isDestroyed = false;
         sensorSettingsMap = loadSensorSettingsConfig(this);
     }
 
@@ -118,7 +114,6 @@ public class SensorService extends Service {
             settings.put("activity_recognition_update_interval", configJson.optInt("activity_recognition_update_interval"));
             settings.put("buffer_delay", configJson.optInt("buffer_delay"));
             settings.put("upload_delay", configJson.optInt("upload_delay"));
-
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -127,30 +122,24 @@ public class SensorService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-
         if (intent == null || intent.getExtras() == null) {
             LOGGER.warn("Self stop because deviceId unknown");
             stopSelf();
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
 
         List<SensorType> selectedSensors = intent.getParcelableArrayListExtra("selectedSensors");
         if (selectedSensors == null || !startForegroundService(selectedSensors)) {
             stopSelf();
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
 
         if (selectedSensors.isEmpty()) {
             LOGGER.warn("No sensors selected or sensor list is empty.");
             stopSelf();
-            return START_STICKY;
+            return START_NOT_STICKY;
         }
 
-        // Start sensor handlers cleanly (clears any stale buffer from a stopped session)
-        sensorHandlerManager.startSelectedSensors(selectedSensors);
-
-        // Resolve session/task ID first so ActivityClassifier, BufferFlushWorker, and uploads
-        // all stamp rows with this exact recording's sessionId.
         currentDeviceId = intent.getExtras().getString("deviceId");
         JSONArray jsonArray = new JSONArray();
         for (SensorType sensor : selectedSensors) {
@@ -158,60 +147,95 @@ public class SensorService extends Service {
         }
         currentSelectedSensorsJson = jsonArray.toString();
 
-        sensorCollectionStateManagerRepository.getTaskId(new RepositoryCallback<>() {
-            @Override
-            public void onSuccess(String id) {
-                if (isDestroyed) {
-                    return;
-                }
-                sensorNetworkSource.resetMessageId();
-
-                String taskId;
-                if (id == null || id.isEmpty()) {
-                    taskId = UUID.randomUUID().toString();
-                    sensorCollectionStateManagerRepository.setTaskId(taskId);
-                    LOGGER.info("Started new recording with Task ID: " + taskId);
-                } else {
-                    taskId = id;
-                    LOGGER.info("Resuming recording with existing Task ID: " + id);
-                }
-                currentSessionId = taskId;
-
-                networkChangeReceiver.setTaskId(taskId);
-                IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
-                registerReceiver(networkChangeReceiver, filter);
-
-                if (selectedSensors.contains(SensorType.ACTIVITY)) {
-                    if (!checkActivityRecognitionPermission()) {
-                        LOGGER.warn("Activity Recognition permission not granted: step detector unavailable, "
-                                + "activity is classified from accelerometer and speed only.");
+        String intentSessionId = intent.getStringExtra("sessionId");
+        if (intentSessionId != null && !intentSessionId.isEmpty()) {
+            startSession(intentSessionId, selectedSensors);
+        } else {
+            sensorCollectionStateManagerRepository.getTaskId(new RepositoryCallback<>() {
+                @Override
+                public void onSuccess(String id) {
+                    if (isDestroyed) {
+                        return;
                     }
-                    LocationHandler locationHandler = null;
-                    if (selectedSensors.contains(SensorType.LOCATION)
-                            && sensorHandlerManager.getSensorHandler(SensorType.LOCATION) instanceof LocationHandler) {
-                        locationHandler = (LocationHandler) sensorHandlerManager.getSensorHandler(SensorType.LOCATION);
+                    String taskId = (id != null && !id.isEmpty()) ? id : UUID.randomUUID().toString();
+                    if (id == null || id.isEmpty()) {
+                        sensorCollectionStateManagerRepository.setTaskId(taskId);
                     }
-                    activityClassifier = new SensorActivityClassifier(
-                            SensorService.this,
-                            (SensorManager) getSystemService(SENSOR_SERVICE),
-                            sensorLocalSource,
-                            locationHandler,
-                            taskId);
-                    activityClassifier.start();
+                    startSession(taskId, selectedSensors);
                 }
 
-                scheduleBufferFlushTask(taskId);
-                scheduleUploadDataTask(taskId);
-            }
-
-            @Override
-            public void onFailure(Throwable error) {
-                LOGGER.warn("Not able to retrieve task id.");
-                stopSelf();
-            }
-        });
+                @Override
+                public void onFailure(Throwable error) {
+                    LOGGER.warn("Not able to retrieve task id.");
+                    stopSelf();
+                }
+            });
+        }
 
         return START_STICKY;
+    }
+
+    private void startSession(String sessionId, List<SensorType> selectedSensors) {
+        if (isDestroyed) {
+            return;
+        }
+
+        // Clean up any prior session timers/classifier if onStartCommand was called again
+        cancelTimers();
+        if (currentSessionId != null && !currentSessionId.equals(sessionId)) {
+            WorkManager.getInstance(getApplicationContext())
+                    .cancelUniqueWork(UNIQUE_BUFFER_FLUSH_WORK + "_" + currentSessionId);
+        }
+        if (activityClassifier != null) {
+            activityClassifier.stop();
+            activityClassifier = null;
+        }
+
+        currentSessionId = sessionId;
+        LOGGER.info("Recording active with Session ID: " + sessionId);
+
+        // Start sensors ONLY after currentSessionId and SensorHandlerManager's activeSessionId match
+        sensorHandlerManager.startSelectedSensors(selectedSensors, sessionId);
+
+        networkChangeReceiver.setTaskId(sessionId);
+        if (!isNetworkReceiverRegistered) {
+            IntentFilter filter = new IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION);
+            registerReceiver(networkChangeReceiver, filter);
+            isNetworkReceiverRegistered = true;
+        }
+
+        if (selectedSensors.contains(SensorType.ACTIVITY)) {
+            if (!checkActivityRecognitionPermission()) {
+                LOGGER.warn("Activity Recognition permission not granted: step detector unavailable, "
+                        + "activity is classified from accelerometer and speed only.");
+            }
+            LocationHandler locationHandler = null;
+            if (selectedSensors.contains(SensorType.LOCATION)
+                    && sensorHandlerManager.getSensorHandler(SensorType.LOCATION) instanceof LocationHandler) {
+                locationHandler = (LocationHandler) sensorHandlerManager.getSensorHandler(SensorType.LOCATION);
+            }
+            activityClassifier = new SensorActivityClassifier(
+                    SensorService.this,
+                    (SensorManager) getSystemService(SENSOR_SERVICE),
+                    sensorLocalSource,
+                    locationHandler,
+                    sessionId);
+            activityClassifier.start();
+        }
+
+        scheduleBufferFlushTask(sessionId);
+        scheduleUploadDataTask(sessionId);
+    }
+
+    private void cancelTimers() {
+        if (bufferWorkerTimer != null) {
+            bufferWorkerTimer.cancel();
+            bufferWorkerTimer = null;
+        }
+        if (uploadWorkerTimer != null) {
+            uploadWorkerTimer.cancel();
+            uploadWorkerTimer = null;
+        }
     }
 
     private boolean startForegroundService(List<SensorType> selectedSensors) {
@@ -219,7 +243,6 @@ public class SensorService extends Service {
         int type = 0;
         if (isLocationSensorToggled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                LOGGER.info("location toggled true" + type);
                 type = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -232,34 +255,30 @@ public class SensorService extends Service {
         }
 
         Notification notification = getNotification();
-        if (isLocationSensorToggled && type != 0) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
-                ServiceCompat.startForeground(this, FOREGROUND_ID, notification, type);
-            } else {
-                LOGGER.warn("Location permission not granted. Unable to start service with location type.");
-                return false;
-            }
-        } else {
-            ServiceCompat.startForeground(this, FOREGROUND_ID, notification, type);
-        }
-
+        ServiceCompat.startForeground(this, FOREGROUND_ID, notification, type);
         return true;
     }
 
     private void scheduleBufferFlushTask(String sessionId) {
-        long BUFFER_DELAY = sensorSettingsMap.get("buffer_delay");
         Data flushData = new Data.Builder()
                 .putString("sessionId", sessionId)
                 .build();
+        long BUFFER_DELAY = sensorSettingsMap.get("buffer_delay");
+        final String uniqueWorkName = UNIQUE_BUFFER_FLUSH_WORK + "_" + sessionId;
+
+        bufferWorkerTimer = new Timer();
         bufferWorkerTimer.schedule(new TimerTask() {
             @Override
             public void run() {
+                if (isDestroyed || !sessionId.equals(currentSessionId)) {
+                    return;
+                }
                 OneTimeWorkRequest flushWork = new OneTimeWorkRequest.Builder(BufferFlushWorker.class)
                         .addTag("bufferFlushWork")
                         .setInputData(flushData)
                         .build();
                 WorkManager.getInstance(getApplicationContext()).enqueueUniqueWork(
-                        UNIQUE_BUFFER_FLUSH_WORK,
+                        uniqueWorkName,
                         ExistingWorkPolicy.KEEP,
                         flushWork
                 );
@@ -267,16 +286,20 @@ public class SensorService extends Service {
         }, BUFFER_DELAY, BUFFER_DELAY);
     }
 
-    private void scheduleUploadDataTask(String taskId) {
-        Data uploadData = buildSensorUploadData();
+    private void scheduleUploadDataTask(String sessionId) {
+        Data uploadData = buildSensorUploadData(sessionId);
         Constraints networkConstraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();
+        long uploadDelay = sensorSettingsMap.get("upload_delay");
 
-        long upload_delay = sensorSettingsMap.get("upload_delay");
+        uploadWorkerTimer = new Timer();
         uploadWorkerTimer.schedule(new TimerTask() {
             @Override
             public void run() {
+                if (isDestroyed || !sessionId.equals(currentSessionId)) {
+                    return;
+                }
                 OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(SensorUploadWorker.class)
                         .addTag("dataUploadWork")
                         .setConstraints(networkConstraints)
@@ -289,16 +312,16 @@ public class SensorService extends Service {
                         work
                 );
             }
-        }, upload_delay, upload_delay);
+        }, uploadDelay, uploadDelay);
     }
 
-    private Data buildSensorUploadData() {
+    private Data buildSensorUploadData(String sessionId) {
         Data.Builder builder = new Data.Builder();
         if (currentDeviceId != null) {
             builder.putString("deviceId", currentDeviceId);
         }
-        if (currentSessionId != null) {
-            builder.putString("sessionId", currentSessionId);
+        if (sessionId != null) {
+            builder.putString("sessionId", sessionId);
         }
         if (currentSelectedSensorsJson != null) {
             builder.putString("selectedSensors", currentSelectedSensorsJson);
@@ -321,6 +344,7 @@ public class SensorService extends Service {
         Data unsentInput = new Data.Builder()
                 .putString("taskId", sessionId)
                 .build();
+
         OneTimeWorkRequest finalUnsentUpload = new OneTimeWorkRequest.Builder(UnsentDataUploadWorker.class)
                 .addTag("unsentDataUploadWorker")
                 .setConstraints(networkConstraints)
@@ -329,15 +353,16 @@ public class SensorService extends Service {
                 .build();
 
         WorkManager workManager = WorkManager.getInstance(appContext);
-        workManager.enqueueUniqueWork(UNIQUE_SENSOR_UPLOAD_WORK, ExistingWorkPolicy.REPLACE, finalSensorUpload);
-        workManager.enqueueUniqueWork(UNIQUE_UNSENT_UPLOAD_WORK, ExistingWorkPolicy.REPLACE, finalUnsentUpload);
+        // APPEND_OR_REPLACE ensures a running upload or new session isn't clobbered,
+        // while guaranteeing a pass runs after remainingData is written to Room.
+        workManager.enqueueUniqueWork(UNIQUE_SENSOR_UPLOAD_WORK, ExistingWorkPolicy.APPEND_OR_REPLACE, finalSensorUpload);
+        workManager.enqueueUniqueWork(UNIQUE_UNSENT_UPLOAD_WORK, ExistingWorkPolicy.APPEND_OR_REPLACE, finalUnsentUpload);
     }
 
     @NonNull
     private Notification getNotification() {
         NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "SensorDataCollectionChannel", NotificationManager.IMPORTANCE_DEFAULT);
         channel.setDescription("SensorDataCollection channel for foreground service notification");
-
         NotificationManager notificationManager = getSystemService(NotificationManager.class);
         notificationManager.createNotificationChannel(channel);
 
@@ -372,27 +397,41 @@ public class SensorService extends Service {
     @Override
     public void onDestroy() {
         isDestroyed = true;
-        sensorNetworkSource.resetMessageId();
-
-        if (bufferWorkerTimer != null) {
-            bufferWorkerTimer.cancel();
-        }
-        if (uploadWorkerTimer != null) {
-            uploadWorkerTimer.cancel();
-        }
+        cancelTimers();
 
         final Context appContext = getApplicationContext();
-        WorkManager.getInstance(appContext).cancelUniqueWork(UNIQUE_BUFFER_FLUSH_WORK);
-
-        // Snapshot and clear in-memory sensor samples BEFORE stopping sensors so nothing leaks into a new session
-        final Map<String, JSONArray> remainingData =
-                sensorHandlerManager != null ? sensorHandlerManager.collectSensorData() : null;
-        final Data finalUploadData = buildSensorUploadData();
         final String finalSessionId = currentSessionId;
+        currentSessionId = null;
+
+        if (finalSessionId != null && !finalSessionId.isEmpty()) {
+            WorkManager.getInstance(appContext).cancelUniqueWork(UNIQUE_BUFFER_FLUSH_WORK + "_" + finalSessionId);
+        }
+
+        if (isNetworkReceiverRegistered) {
+            try {
+                unregisterReceiver(networkChangeReceiver);
+            } catch (Exception e) {
+                LOGGER.warn("network change receiver already unregistered");
+            }
+            isNetworkReceiverRegistered = false;
+        }
+
+        if (activityClassifier != null) {
+            activityClassifier.stop();
+            activityClassifier = null;
+        }
+
+        // Atomically snapshot remaining samples & stop handlers ONLY if finalSessionId still owns SensorHandlerManager
+        final Map<String, JSONArray> remainingData = sensorHandlerManager != null
+                ? sensorHandlerManager.stopSessionAndCollectRemaining(finalSessionId)
+                : null;
+        final Data finalUploadData = buildSensorUploadData(finalSessionId);
 
         flushExecutor.execute(() -> {
             try {
-                if (remainingData != null && !remainingData.isEmpty() && sensorLocalSource.isDatabaseInitialized()) {
+                if (finalSessionId != null && !finalSessionId.isEmpty()
+                        && remainingData != null && !remainingData.isEmpty()
+                        && sensorLocalSource.isDatabaseInitialized()) {
                     sensorLocalSource.writeToDatabase(remainingData, finalSessionId);
                 }
             } catch (Exception e) {
@@ -403,42 +442,9 @@ public class SensorService extends Service {
         });
         flushExecutor.shutdown();
 
-        if (networkChangeReceiver != null) {
-            try {
-                LOGGER.info("unregister network change receiver");
-                unregisterReceiver(networkChangeReceiver);
-            } catch (Exception e) {
-                LOGGER.warn("network change receiver is deregister already");
-            }
-        }
-
-        if (activityClassifier != null) {
-            activityClassifier.stop();
-            activityClassifier = null;
-        }
-
-        LOGGER.info("Stopping sensor service");
         try {
-            if (sensorHandlerManager != null) {
-                sensorHandlerManager.stopSensors();
-                LOGGER.info("Sensors have been stopped.");
-            }
-
-            sensorCollectionStateManagerRepository.getTaskId(new RepositoryCallback<>() {
-                @Override
-                public void onSuccess(String taskId) {
-                    LOGGER.info("Stopping sensor service with Task ID: " + taskId);
-                }
-
-                @Override
-                public void onFailure(Throwable error) {
-                }
-            });
-
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
-            sensorCollectionStateManagerRepository.clearManager();
-
-            LOGGER.info("Sensor service is stopped. Sensors stop recording.");
+            LOGGER.info("Sensor service stopped cleanly for session: " + finalSessionId);
         } catch (NullPointerException exception) {
             LOGGER.warn("Foreground service has already stopped.");
         }
@@ -450,5 +456,4 @@ public class SensorService extends Service {
     public IBinder onBind(Intent intent) {
         return null;
     }
-
 }

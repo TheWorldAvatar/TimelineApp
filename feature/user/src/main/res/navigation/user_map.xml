@@ -153,7 +153,20 @@
         tools:layout="@layout/fragment_compare_trips">
         <deepLink app:uri="@string/compare_trips_link" />
     </fragment>
-    <action android:id="@+id/action_global_compare_trips"
+
+    <action 
+        android:id="@+id/action_global_compare_trips"
         app:destination="@id/compare_trips" />
+
+    <fragment
+        android:id="@+id/weekly_trends"
+        android:name="uk.ac.cam.cares.jps.user.exposure.WeeklyTrendsFragment"
+        tools:layout="@layout/fragment_weekly_trends">
+        <deepLink app:uri="@string/weekly_trends_link" />
+    </fragment>
+
+    <action
+        android:id="@+id/action_global_weekly_trends"
+        app:destination="@id/weekly_trends" />
 
 </navigation>

@@ -16,19 +16,14 @@ import java.util.Map;
 
 import javax.inject.Inject;
 
-/**
- * A class to manage sensor handlers. It is considered as a data source level component.
- * Functionalities:
- * 1. Start/stop all sensor handlers
- * 2. Collect all sensor data and prepare them for network upload (by SensorNetworkSource) and local storage (by SensorLocalSource) and clear the in memory accumulated data
- */
 public class SensorHandlerManager {
 
-    private Logger LOGGER = Logger.getLogger(SensorHandlerManager.class);
+    private final Logger LOGGER = Logger.getLogger(SensorHandlerManager.class);
     private final SensorHandler[] sensorHandlers;
-    private Map<SensorType, SensorHandler> sensorHandlersMap;
-    private Map<SensorType, Integer> samplingRatesMap;
-
+    private final Map<SensorType, SensorHandler> sensorHandlersMap;
+    private final Map<SensorType, Integer> samplingRatesMap;
+    private final Object sessionLock = new Object();
+    private String activeSessionId = null;
 
     @Inject
     public SensorHandlerManager(Context applicationContext) {
@@ -36,28 +31,17 @@ public class SensorHandlerManager {
         samplingRatesMap = loadSamplingRatesConfig(applicationContext);
         sensorHandlersMap = new HashMap<>();
 
-        AccelerometerHandler accelerometerHandler = new AccelerometerHandler(sensorManager);
-        GyroscopeHandler gyroscopeHandler = new GyroscopeHandler(sensorManager);
-        MagnetometerHandler magnetometerHandler = new MagnetometerHandler(sensorManager);
-        LightSensorHandler lightSensorHandler = new LightSensorHandler(sensorManager);
-        RelativeHumiditySensorHandler humidityHandler = new RelativeHumiditySensorHandler(sensorManager);
-        PressureSensorHandler pressureHandler = new PressureSensorHandler(sensorManager);
-        GravitySensorHandler gravityHandler = new GravitySensorHandler(sensorManager);
-        LocationHandler locationHandler = new LocationHandler(applicationContext);
-        SoundLevelHandler soundHandler = new SoundLevelHandler(applicationContext, sensorManager);
-
-        sensorHandlersMap.put(SensorType.ACCELEROMETER, accelerometerHandler);
-        sensorHandlersMap.put(SensorType.GYROSCOPE, gyroscopeHandler);
-        sensorHandlersMap.put(SensorType.MAGNETOMETER, magnetometerHandler);
-        sensorHandlersMap.put(SensorType.LIGHT, lightSensorHandler);
-        sensorHandlersMap.put(SensorType.HUMIDITY, humidityHandler);
-        sensorHandlersMap.put(SensorType.PRESSURE, pressureHandler);
-        sensorHandlersMap.put(SensorType.GRAVITY, gravityHandler);
-        sensorHandlersMap.put(SensorType.LOCATION, locationHandler);
-        sensorHandlersMap.put(SensorType.SOUND, soundHandler);
+        sensorHandlersMap.put(SensorType.ACCELEROMETER, new AccelerometerHandler(sensorManager));
+        sensorHandlersMap.put(SensorType.GYROSCOPE, new GyroscopeHandler(sensorManager));
+        sensorHandlersMap.put(SensorType.MAGNETOMETER, new MagnetometerHandler(sensorManager));
+        sensorHandlersMap.put(SensorType.LIGHT, new LightSensorHandler(sensorManager));
+        sensorHandlersMap.put(SensorType.HUMIDITY, new RelativeHumiditySensorHandler(sensorManager));
+        sensorHandlersMap.put(SensorType.PRESSURE, new PressureSensorHandler(sensorManager));
+        sensorHandlersMap.put(SensorType.GRAVITY, new GravitySensorHandler(sensorManager));
+        sensorHandlersMap.put(SensorType.LOCATION, new LocationHandler(applicationContext));
+        sensorHandlersMap.put(SensorType.SOUND, new SoundLevelHandler(applicationContext, sensorManager));
 
         sensorHandlers = sensorHandlersMap.values().toArray(new SensorHandler[0]);
-
     }
 
     private Map<SensorType, Integer> loadSamplingRatesConfig(Context context) {
@@ -100,41 +84,89 @@ public class SensorHandlerManager {
         }
     }
 
-    /**
-     * Start selected sensor handlers after ensuring no stopped-session samples remain buffered.
-     */
     public void startSelectedSensors(List<SensorType> selectedSensorTypes) {
-        for (SensorType type : selectedSensorTypes) {
-            SensorHandler handler = sensorHandlersMap.get(type);
-            if (handler != null) {
-                if (!handler.isRunning()) {
-                    handler.clearSensorData();
-                }
-                handler.start(samplingRatesMap.get(type));
-            }
-        }
-        LOGGER.info("Selected sensors started");
+        startSelectedSensors(selectedSensorTypes, null);
     }
 
-    /**
-     * Stop all sensor handlers
-     */
-    public void stopSensors() {
+    public void startSelectedSensors(List<SensorType> selectedSensorTypes, String sessionId) {
+        synchronized (sessionLock) {
+            // Stop any lingering handlers and discard any uncollected buffers before switching session
+            stopSensorsLocked();
+            clearAllSensorDataLocked();
+            activeSessionId = sessionId;
 
-        for (SensorHandler handler : sensorHandlers) {
-            handler.stop();
+            for (SensorType type : selectedSensorTypes) {
+                SensorHandler handler = sensorHandlersMap.get(type);
+                if (handler != null) {
+                    handler.clearSensorData();
+                    handler.start(samplingRatesMap.get(type));
+                }
+            }
+            LOGGER.info("Selected sensors started for session " + sessionId);
         }
+    }
 
+    public void stopSensors() {
+        synchronized (sessionLock) {
+            stopSensorsLocked();
+            clearAllSensorDataLocked();
+            activeSessionId = null;
+        }
+    }
+
+    public Map<String, JSONArray> stopSessionAndCollectRemaining(String sessionId) {
+        synchronized (sessionLock) {
+            if (sessionId == null || !sessionId.equals(activeSessionId)) {
+                LOGGER.info("Skipping stop/drain for session " + sessionId + "; active session is " + activeSessionId);
+                return new HashMap<>();
+            }
+            Map<String, JSONArray> remaining = collectSensorDataLocked();
+            stopSensorsLocked();
+            clearAllSensorDataLocked();
+            activeSessionId = null;
+            return remaining;
+        }
+    }
+
+    public Map<String, JSONArray> collectSensorDataForSession(String expectedSessionId) {
+        synchronized (sessionLock) {
+            if (expectedSessionId == null || expectedSessionId.isEmpty() || !expectedSessionId.equals(activeSessionId)) {
+                LOGGER.info("Ignoring stale buffer flush for session " + expectedSessionId
+                        + " (activeSessionId=" + activeSessionId + ")");
+                return new HashMap<>();
+            }
+            return collectSensorDataLocked();
+        }
+    }
+
+    public Map<String, JSONArray> collectSensorData() {
+        synchronized (sessionLock) {
+            return collectSensorDataLocked();
+        }
+    }
+
+    public void clearAllSensorData() {
+        synchronized (sessionLock) {
+            clearAllSensorDataLocked();
+        }
+    }
+
+    private void stopSensorsLocked() {
+        for (SensorHandler handler : sensorHandlers) {
+            if (handler.isRunning()) {
+                handler.stop();
+            }
+        }
         LOGGER.info("sensors stopped");
     }
 
-    /**
-     * Collect in memory sensor data from handler objects and prepare them in the format for network upload and local storage.
-     * Network format: a JSONArray
-     * Local format: a Map
-     * @return pair (network data, local data)
-     */
-    public Map<String, JSONArray> collectSensorData() {
+    private void clearAllSensorDataLocked() {
+        for (SensorHandler handler : sensorHandlersMap.values()) {
+            handler.clearSensorData();
+        }
+    }
+
+    private Map<String, JSONArray> collectSensorDataLocked() {
         Map<String, JSONArray> localStorageData = new HashMap<>();
         for (SensorHandler handler : sensorHandlersMap.values()) {
             if (handler.isRunning()) {
@@ -143,25 +175,15 @@ public class SensorHandlerManager {
                     sensorData = handler.getSensorData();
                     handler.clearSensorData();
                 }
-                localStorageData.put(handler.getSensorName(), sensorData);
+                if (sensorData.length() > 0) {
+                    localStorageData.put(handler.getSensorName(), sensorData);
+                }
             }
         }
-
         return localStorageData;
     }
 
-    /**
-     * Clears all sensor data from memory.
-     */
-    public void clearAllSensorData() {
-        for (SensorHandler handler : sensorHandlersMap.values()) {
-            handler.clearSensorData();
-        }
-    }
-
-    // returns sensor handler to SensorSettingFragment class
     public SensorHandler getSensorHandler(SensorType type) {
         return sensorHandlersMap.get(type);
     }
-
 }

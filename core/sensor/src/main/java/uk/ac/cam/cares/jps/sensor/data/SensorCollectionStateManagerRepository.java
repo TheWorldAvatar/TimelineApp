@@ -153,4 +153,34 @@ public class SensorCollectionStateManagerRepository {
         sensorCollectionStateManager.setSelectedSensors(sensors);
     }
 
+    public void beginNewSession(String sessionId, List<SensorType> selectedSensors, RepositoryCallback<String> callback) {
+        checkOrInitSensorCollectionStateManagerWithLoginInfo(new RepositoryCallback<>() {
+            @Override
+            public void onSuccess(String deviceId) {
+                sensorCollectionStateManager.beginNewSession(sessionId, selectedSensors);
+                callback.onSuccess(deviceId);
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                callback.onFailure(error);
+            }
+        }, () -> sensorCollectionStateManager.getDeviceId());
+    }
+
+    public void clearRecordingSession() {
+        getUserId(new RepositoryCallback<>() {
+            @Override
+            public void onSuccess(String userId) {
+                sensorCollectionStateManager.clearTaskId(userId);
+            }
+
+            @Override
+            public void onFailure(Throwable error) {
+                sensorCollectionStateManager.setRecordingState(false);
+                sensorCollectionStateManager.setTaskId("");
+            }
+        });
+    }
+
 }

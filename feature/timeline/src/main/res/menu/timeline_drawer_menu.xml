@@ -6,6 +6,10 @@
             android:icon="@drawable/baseline_directions_walk_24"
             android:title="Timeline Map" />
         <item
+            android:id="@+id/nav_weekly_trends"
+            android:icon="@drawable/ic_trending_up_24"
+            android:title="Weekly Exposure Trends" />
+        <item
             android:id="@+id/nav_calculated_exposures"
             android:icon="@drawable/baseline_settings_24"
             android:title="Calculated Exposures" />

@@ -10,7 +10,6 @@ import androidx.work.WorkerParameters;
 import org.apache.log4j.Logger;
 import org.json.JSONArray;
 
-import java.util.HashMap;
 import java.util.Map;
 
 import dagger.assisted.Assisted;
@@ -26,7 +25,6 @@ public class BufferFlushWorker extends Worker {
     private final String sessionId;
 
     private final Logger LOGGER = Logger.getLogger(BufferFlushWorker.class);
-    private final Map<String, JSONArray> memoryBuffer = new HashMap<>();
     private static final long THIRTY_DAYS_IN_MILLIS = 30L * 24 * 60 * 60 * 1000;
 
     @AssistedInject
@@ -43,34 +41,16 @@ public class BufferFlushWorker extends Worker {
     @Override
     public Result doWork() {
         try {
-            if (!sensorLocalSource.isDatabaseInitialized()) {
+            if (!sensorLocalSource.isDatabaseInitialized() || sessionId == null || sessionId.isEmpty()) {
                 return Result.success();
             }
 
-            Map<String, JSONArray> localData = sensorHandlerManager.collectSensorData();
-            for (Map.Entry<String, JSONArray> entry : localData.entrySet()) {
-                String sensorName = entry.getKey();
-                JSONArray newData = entry.getValue();
-
-                JSONArray bufferedData = memoryBuffer.computeIfAbsent(sensorName, k -> new JSONArray());
-
-                for (int i = 0; i < newData.length(); i++) {
-                    try {
-                        bufferedData.put(newData.get(i));
-                    } catch (Exception e) {
-                        LOGGER.error("Error adding data to buffer", e);
-                    }
-                }
+            Map<String, JSONArray> localData = sensorHandlerManager.collectSensorDataForSession(sessionId);
+            if (!localData.isEmpty()) {
+                sensorLocalSource.writeToDatabase(localData, sessionId);
+                LOGGER.info("Buffer flushed to local storage for session " + sessionId);
             }
 
-            // Write buffered data to local storage tagged with this sessionId
-            sensorLocalSource.writeToDatabase(memoryBuffer, sessionId);
-            // Clear the buffer after flushing to local storage
-            memoryBuffer.clear();
-
-            LOGGER.info("Buffer flushed to local storage for session " + sessionId);
-
-            // Handle deleting old data
             long cutoffTime = System.currentTimeMillis() - THIRTY_DAYS_IN_MILLIS;
             sensorLocalSource.deleteHistoricalData(cutoffTime);
 
@@ -80,5 +60,4 @@ public class BufferFlushWorker extends Worker {
             return Result.retry();
         }
     }
-
 }

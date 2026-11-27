@@ -71,9 +71,6 @@ public class SensorUploadWorker extends Worker {
             if (deviceId == null || deviceId.isEmpty()) {
                 deviceId = fetchStateValueBlocking(stateManagerRepository::getDeviceId);
             }
-            if (fallbackSessionId == null || fallbackSessionId.isEmpty()) {
-                fallbackSessionId = fetchStateValueBlocking(stateManagerRepository::getTaskId);
-            }
             if (deviceId == null || deviceId.isEmpty()) {
                 return Result.retry();
             }
@@ -113,7 +110,13 @@ public class SensorUploadWorker extends Worker {
                     continue;
                 }
 
-                String effectiveSessionId = !rowSessionId.isEmpty() ? rowSessionId : fallbackSessionId;
+                String effectiveSessionId = !rowSessionId.isEmpty()
+                        ? rowSessionId
+                        : (fallbackSessionId != null && !fallbackSessionId.isEmpty() ? fallbackSessionId : "");
+                if (effectiveSessionId.isEmpty()) {
+                    LOGGER.warn("Skipping " + sensorData.length() + " orphaned sensor rows with missing sessionId");
+                    continue;
+                }
                 byte[] compressedData = compressData(sensorData.toString());
                 String accessToken = fetchAccessTokenBlocking();
 

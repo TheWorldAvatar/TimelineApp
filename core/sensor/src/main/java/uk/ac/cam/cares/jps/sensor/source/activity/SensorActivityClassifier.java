@@ -82,6 +82,8 @@ public class SensorActivityClassifier implements SensorEventListener {
     private boolean aboveThreshold = false;
     private long lastPeakMs = 0;
 
+    private volatile boolean stopped = false;
+
     private final Deque<Result> recent = new ArrayDeque<>();
 
     private static class Result {
@@ -114,6 +116,7 @@ public class SensorActivityClassifier implements SensorEventListener {
     }
 
     public synchronized void start() {
+        stopped = false;
         if (running) {
             return;
         }
@@ -145,6 +148,7 @@ public class SensorActivityClassifier implements SensorEventListener {
     }
 
     public synchronized void stop() {
+        stopped = true;
         if (!running) {
             return;
         }
@@ -154,6 +158,7 @@ public class SensorActivityClassifier implements SensorEventListener {
             handlerThread = null;
         }
         running = false;
+        dbExecutor.shutdown();
         LOGGER.info("ACTIVITY classifier stopped");
     }
 
@@ -311,12 +316,12 @@ public class SensorActivityClassifier implements SensorEventListener {
     }
 
     private void publish(Result result, long timestampMs) {
-        if (result.label == null || result.confidence < MIN_CONFIDENCE_TO_RECORD) {
-            LOGGER.info("ACTIVITY not recorded: " + result.label + " confidence " + result.confidence
-                    + " below " + MIN_CONFIDENCE_TO_RECORD);
+        if (stopped || result.label == null || result.confidence < MIN_CONFIDENCE_TO_RECORD) {
             return;
         }
         LOGGER.info("ACTIVITY recorded: " + result.label + " confidence " + result.confidence);
-        dbExecutor.execute(() -> sensorLocalSource.saveActivityData(result.label, result.confidence, timestampMs, sessionId));
+        if (!dbExecutor.isShutdown()) {
+            dbExecutor.execute(() -> sensorLocalSource.saveActivityData(result.label, result.confidence, timestampMs, sessionId));
+        }
     }
 }

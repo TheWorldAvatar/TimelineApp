@@ -15,6 +15,7 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -36,15 +37,14 @@ public class SensorNetworkSource {
     Logger LOGGER = Logger.getLogger(SensorNetworkSource.class);
     SensorLocalSource sensorLocalSource;
     LoginRepository loginRepository;
-    int messageId;
 
     private final OkHttpClient httpClient = new OkHttpClient();
+    private final AtomicInteger messageId = new AtomicInteger(0);
 
     public interface UploadCallback {
         void onSuccess();
         void onFailure();
     }
-
 
     public SensorNetworkSource(Context applicationContext,
                                RequestQueue requestQueue,
@@ -62,11 +62,12 @@ public class SensorNetworkSource {
                 .build().toString();
 
         String compressedDataString = Base64.encodeToString(compressedData, Base64.NO_WRAP);
+        int currentMsgId = messageId.getAndIncrement();
 
         JSONObject postData = new JSONObject();
         try {
             postData.put("deviceId", deviceId);
-            postData.put("messageId", messageId++);
+            postData.put("messageId", currentMsgId);
             postData.put("sessionId", sessionId);
             postData.put("compressedData", compressedDataString);
         } catch (JSONException e) {
@@ -87,7 +88,7 @@ public class SensorNetworkSource {
         try (Response response = httpClient.newCall(request).execute()) {
             if (response.isSuccessful()) {
                 String responseBody = response.body() != null ? response.body().string() : "";
-                LOGGER.info("Upload succeeded: " + response.code() + ", messageId " + (messageId - 1)
+                LOGGER.info("Upload succeeded: " + response.code() + ", messageId " + currentMsgId
                         + ", sessionId " + sessionId
                         + ", server response: " + (responseBody.length() > 500 ? responseBody.substring(0, 500) + "..." : responseBody));
                 return true;
@@ -117,17 +118,18 @@ public class SensorNetworkSource {
                 .build().toString();
 
         String compressedDataString = Base64.encodeToString(compressedData, Base64.NO_WRAP);
-        LOGGER.info("Size of compressed data string: " + compressedDataString.getBytes("UTF-8").length + " bytes");
+        LOGGER.info("Size of compressed data string: " + compressedDataString.getBytes(StandardCharsets.UTF_8).length + " bytes");
 
+        int currentMsgId = messageId.getAndIncrement();
         JSONObject postData = new JSONObject();
         try {
             postData.put("deviceId", deviceId);
-            postData.put("messageId", messageId++);
+            postData.put("messageId", currentMsgId);
             postData.put("sessionId", sessionId);
             postData.put("compressedData", compressedDataString);
             LOGGER.info("Sending sensor data with metadata and compressed data.");
         } catch (JSONException e) {
-            e.printStackTrace();
+            LOGGER.error("Error building payload", e);
         }
 
         final String requestBody = postData.toString();
@@ -176,7 +178,6 @@ public class SensorNetworkSource {
     }
 
     public void resetMessageId() {
-        messageId = 0;
+        messageId.set(0);
     }
-
 }

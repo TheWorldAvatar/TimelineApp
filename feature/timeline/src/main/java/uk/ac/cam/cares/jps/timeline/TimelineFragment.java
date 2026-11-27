@@ -383,6 +383,12 @@ public class TimelineFragment extends Fragment {
                 NavHostFragment.findNavController(this).navigate(request);
                 return true;
             }
+            if (id == R.id.nav_weekly_trends) {
+                Uri uri = Uri.parse(getString(uk.ac.cam.cares.jps.utils.R.string.weekly_trends_link));
+                NavDeepLinkRequest request = NavDeepLinkRequest.Builder.fromUri(uri).build();
+                NavHostFragment.findNavController(this).navigate(request);
+                return true;
+            }
             return false;
         });
 
